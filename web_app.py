@@ -151,4 +151,6 @@ async def api_save_schedule(request: Request, payload: dict = Body(...)):
     return {"success": True}
 
 # Serve React static files in production
-app.mount("/", StaticFiles(directory="Scholl-ss-main/dist", html=True), name="frontend")
+import os
+if os.path.exists("Scholl-ss-main/dist"):
+    app.mount("/", StaticFiles(directory="Scholl-ss-main/dist", html=True), name="frontend")
