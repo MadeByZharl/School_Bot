@@ -58,6 +58,28 @@ logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
+
+
+def ensure_git_init():
+    """Checks if .git folder exists, if not - initializes it so /update can work."""
+    import subprocess
+    import os
+    repo_path = os.path.dirname(os.path.abspath(__file__))
+    git_path = os.path.join(repo_path, ".git")
+    
+    if not os.path.exists(git_path):
+        print("🚀 [System] Git folder not found. Initializing repository for auto-updates...")
+        try:
+            subprocess.run(["git", "init"], cwd=repo_path, check=True)
+            subprocess.run(["git", "remote", "add", "origin", "https://github.com/MadeByZharl/School_Bot.git"], cwd=repo_path, check=True)
+            subprocess.run(["git", "fetch", "origin"], cwd=repo_path, check=True)
+            # We don't reset --hard here to avoid losing non-pushed local changes on first boot
+            print("✅ [System] Git initialized successfully!")
+        except Exception as e:
+            print(f"❌ [System] Failed to initialize git: {e}")
+
+# Run git check at boot
+ensure_git_init()
 dp = Dispatcher(storage=storage)
 
 spam_cache = TTLCache(maxsize=10000, ttl=1.5)
