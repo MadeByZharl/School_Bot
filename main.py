@@ -283,20 +283,45 @@ async def cmd_update(message: Message):
     import os
     
     try:
-        # Get branch from env or default to main
+        # Detect repo path
+        repo_path = os.path.dirname(os.path.abspath(__file__))
         branch = os.getenv("GIT_BRANCH", "main")
         
-        # Pull latest from git
-        process = subprocess.Popen(["git", "pull", "origin", branch], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        stdout, stderr = process.communicate()
-        
-        if process.returncode != 0:
-            await message.answer(t("update_error", lang).format(error=stderr), parse_mode=ParseMode.HTML)
-            return
+        # Check if it's a git repo
+        if not os.path.exists(os.path.join(repo_path, ".git")):
+            # Auto-initialize if possible
+            cmds = [
+                ["git", "init"],
+                ["git", "remote", "add", "origin", "https://github.com/MadeByZharl/School_Bot.git"],
+                ["git", "fetch", "origin"],
+                ["git", "reset", "--hard", f"origin/{branch}"]
+            ]
+            for cmd in cmds:
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=repo_path)
+                out, err = p.communicate()
+                if p.returncode != 0:
+                    await message.answer(t("update_error", lang).format(error=f"Init fail: {err}"), parse_mode=ParseMode.HTML)
+                    return
+            stdout = "Git initialized and synchronized."
+        else:
+            # Regular pull
+            process = subprocess.Popen(
+                ["git", "pull", "origin", branch],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=repo_path
+            )
+            stdout, stderr = process.communicate()
+            if process.returncode != 0:
+                # Force reset if pull fails due to conflicts
+                process = subprocess.Popen(["git", "reset", "--hard", f"origin/{branch}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=repo_path)
+                stdout_r, stderr_r = process.communicate()
+                stdout = f"Pull failed (conflicts?), forced reset: {stdout_r}"
 
         await message.answer(t("update_success", lang) + f"\n\n<code>{stdout}</code>", parse_mode=ParseMode.HTML)
         
-        # Kill process - Pterodactyl/PM2 will restart it
+        # Restart process
         os._exit(0)
         
     except Exception as e:
