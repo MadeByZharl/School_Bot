@@ -19,7 +19,7 @@ from db import (
     get_all_users, get_users_by_class, get_lessons,
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user,
-    cursor, conn, format_class,
+    format_class, update_user_lang,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
@@ -489,8 +489,7 @@ async def process_change_lang(callback: CallbackQuery):
     if not user:
         await callback.answer()
         return
-    cursor.execute("UPDATE users SET lang = ? WHERE tg_id = ?", (new_lang, callback.from_user.id))
-    conn.commit()
+    update_user_lang(callback.from_user.id, new_lang)
     user["lang"] = new_lang
     await callback.message.edit_text(
         t("lang_changed", new_lang),
