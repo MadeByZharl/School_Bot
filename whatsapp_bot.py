@@ -3,6 +3,9 @@ import re
 import requests
 from dotenv import load_dotenv
 from whatsapp_api_client_python import API
+from cachetools import TTLCache
+
+wa_spam_cache = TTLCache(maxsize=10000, ttl=1.5)
 
 # Подключаем общие модуцы
 import db
@@ -467,6 +470,11 @@ def webhook_handler(typeWebhook, body):
                 text = messageData['extendedTextMessageData']['text']
                 
             if text:
+                if wa_id in wa_spam_cache:
+                    print(f"SPAM BLOCK: WA {wa_id} sent message too fast.")
+                    return
+                wa_spam_cache[wa_id] = True
+                
                 print(f"Received WA msg from {wa_id}: {text}")
                 process_message(wa_id, text)
         except Exception as e:

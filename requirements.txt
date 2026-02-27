@@ -9,3 +9,4 @@ fastapi
 uvicorn
 jinja2
 python-multipart
+cachetools==5.3.3

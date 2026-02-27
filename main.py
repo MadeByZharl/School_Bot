@@ -13,6 +13,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.enums import ParseMode
+from aiogram import BaseMiddleware
+from typing import Callable, Dict, Any, Awaitable
+from cachetools import TTLCache
 
 import uvicorn
 from web_app import app as fastapi_app
@@ -56,6 +59,25 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+spam_cache = TTLCache(maxsize=10000, ttl=1.5)
+
+class AntiSpamMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
+        data: Dict[str, Any],
+    ) -> Any:
+        user_id = event.from_user.id
+        if user_id in spam_cache:
+            return
+        spam_cache[user_id] = True
+        return await handler(event, data)
+
+dp.message.middleware(AntiSpamMiddleware())
+dp.callback_query.middleware(AntiSpamMiddleware())
+
 router = Router()
 dp.include_router(router)
 
@@ -1103,13 +1125,10 @@ async def main():
     dp.startup.register(on_startup)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, log_level="info")
-    web_server = uvicorn.Server(config)
+    # config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, log_level="info")
+    # web_server = uvicorn.Server(config)
     
-    await asyncio.gather(
-        dp.start_polling(bot),
-        web_server.serve()
-    )
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
