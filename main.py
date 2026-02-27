@@ -383,8 +383,9 @@ async def process_name(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_schedule")), StateFilter(None))
-async def cmd_schedule(message: Message):
+@router.message(F.text.in_(BTN("menu_schedule")))
+async def cmd_schedule(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user:
         await message.answer(t("not_registered", "ru"), parse_mode=ParseMode.HTML)
@@ -462,8 +463,9 @@ async def cmd_schedule(message: Message):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_profile")), StateFilter(None))
-async def cmd_profile(message: Message):
+@router.message(F.text.in_(BTN("menu_profile")))
+async def cmd_profile(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user:
         await message.answer(t("not_registered", "ru"), parse_mode=ParseMode.HTML)
@@ -485,8 +487,9 @@ async def cmd_profile(message: Message):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_settings")), StateFilter(None))
-async def cmd_settings(message: Message):
+@router.message(F.text.in_(BTN("menu_settings")))
+async def cmd_settings(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user:
         await message.answer(t("not_registered", "ru"), parse_mode=ParseMode.HTML)
@@ -528,20 +531,22 @@ async def process_change_lang(callback: CallbackQuery):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_help")), StateFilter(None))
-async def cmd_help(message: Message):
+@router.message(F.text.in_(BTN("menu_help")))
+async def cmd_help(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     lang = user["lang"] if user else "ru"
     await message.answer(t("help_text", lang), parse_mode=ParseMode.HTML)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# � РЕЖИМ ЗВОНКОВ (только завуч)
+#  РЕЖИМ ЗВОНКОВ (только завуч)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_bell_mode")), StateFilter(None))
-async def btn_bell_mode(message: Message):
+@router.message(F.text.in_(BTN("menu_bell_mode")))
+async def btn_bell_mode(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user or user["role"] != "zavuch":
         lang = user["lang"] if user else "ru"
@@ -606,8 +611,9 @@ async def process_bell_mode(callback: CallbackQuery):
 # ✏️ ИЗМЕНЕНИЕ РАСПИСАНИЯ (INLINE)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@router.message(F.text.in_(BTN("menu_edit_schedule")), StateFilter(None))
+@router.message(F.text.in_(BTN("menu_edit_schedule")))
 async def btn_edit_schedule_inline(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user or user["role"] != "zavuch":
         lang = user["lang"] if user else "ru"
@@ -824,7 +830,7 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
         btn_text = f"{i}. {name}"
         kb_rows.append([InlineKeyboardButton(text=btn_text, callback_data=f"es_les_{i}")])
         
-    kb_rows.append([InlineKeyboardButton(text="� К выбору дня", callback_data="es_back_day")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 К выбору дня", callback_data="es_back_day")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     
     await message.answer("✅ Вручную сохранено: " + subj_name, reply_markup=menu_for_user(user))
@@ -837,8 +843,9 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_gen_teacher_code")), StateFilter(None))
+@router.message(F.text.in_(BTN("menu_gen_teacher_code")))
 async def btn_gen_teacher_code(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user or user["role"] != "zavuch":
         lang = user["lang"] if user else "ru"
@@ -850,8 +857,9 @@ async def btn_gen_teacher_code(message: Message, state: FSMContext):
     await state.set_state(GenCode.entering_class_code)
 
 
-@router.message(F.text.in_(BTN("menu_gen_student_code")), StateFilter(None))
+@router.message(F.text.in_(BTN("menu_gen_student_code")))
 async def btn_gen_student_code(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user or user["role"] not in ("zavuch", "teacher"):
         lang = user["lang"] if user else "ru"
@@ -944,10 +952,11 @@ async def gen_code_shift(callback: CallbackQuery, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_my_codes")), StateFilter(None))
-async def btn_my_codes(message: Message):
+@router.message(F.text.in_(BTN("menu_my_codes")))
+async def btn_my_codes(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
-    if not user or user["role"] not in ("zavuch", "teacher"):
+    if not user or user["role"] != "teacher":
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
@@ -975,8 +984,9 @@ async def btn_my_codes(message: Message):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_send_all")), StateFilter(None))
+@router.message(F.text.in_(BTN("menu_send_all")))
 async def btn_send_all(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user or user["role"] != "zavuch":
         lang = user["lang"] if user else "ru"
@@ -1051,8 +1061,9 @@ async def broadcast_class_confirm(message: Message, state: FSMContext):
 # ━━ Завуч → конкретный класс ━━
 
 
-@router.message(F.text.in_(BTN("menu_send_class_zavuch")), StateFilter(None))
+@router.message(F.text.in_(BTN("menu_send_class_zavuch")))
 async def btn_send_class_zavuch(message: Message, state: FSMContext):
+    await state.clear()
     user = get_user(message.from_user.id)
     if not user or user["role"] != "zavuch":
         lang = user["lang"] if user else "ru"
@@ -1157,18 +1168,7 @@ async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(ALL_MENU_BUTTONS))
-async def menu_button_during_fsm(message: Message, state: FSMContext):
-    await state.clear()
-    user = get_user(message.from_user.id)
-    if not user:
-        return
-    lang = user["lang"]
-    await message.answer(
-        t("cancelled", lang),
-        parse_mode=ParseMode.HTML,
-        reply_markup=menu_for_user(user),
-    )
+# Redundant handler removed to fix 2-click bug
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
