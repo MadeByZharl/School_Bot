@@ -389,6 +389,18 @@ TEXTS = {
         "ru": "🔔 <b>Внимание! Изменено расписание на {day_name}!</b>\n\nНовое расписание:\n{schedule}",
         "kk": "🔔 <b>Назар аударыңыз! {day_name} күніне кесте өзгерді!</b>\n\nЖаңа кесте:\n{schedule}",
     },
+    "update_start": {
+        "ru": "🔄 <b>Обновление...</b>\n\nВыполняю <code>git pull</code>",
+        "kk": "🔄 <b>Жаңарту...</b>\n\n<code>git pull</code> орындалуда",
+    },
+    "update_success": {
+        "ru": "✅ <b>Успешно!</b>\n\nБот перезагружается...",
+        "kk": "✅ <b>Сәтті!</b>\n\nБот қайта жүктелуде...",
+    },
+    "update_error": {
+        "ru": "❌ <b>Ошибка при обновлении:</b>\n\n<code>{error}</code>",
+        "kk": "❌ <b>Жаңарту кезіндегі қате:</b>\n\n<code>{error}</code>",
+    },
 }
 
 LESSON_TRANSLATIONS = {

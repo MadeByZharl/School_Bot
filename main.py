@@ -267,6 +267,39 @@ async def cmd_logout(message: Message, state: FSMContext):
         await message.answer("Вы не зарегистрированы.\nВведите /start", reply_markup=ReplyKeyboardRemove())
 
 
+@router.message(Command("update"))
+async def cmd_update(message: Message):
+    user = get_user(message.from_user.id)
+    if not user or user["role"] != "zavuch":
+        lang = user["lang"] if user else "ru"
+        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        return
+    
+    lang = user["lang"]
+    await message.answer(t("update_start", lang), parse_mode=ParseMode.HTML)
+    
+    import subprocess
+    import sys
+    import os
+    
+    try:
+        # Pull latest from git
+        process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            await message.answer(t("update_error", lang).format(error=stderr), parse_mode=ParseMode.HTML)
+            return
+
+        await message.answer(t("update_success", lang) + f"\n\n<code>{stdout}</code>", parse_mode=ParseMode.HTML)
+        
+        # Kill process - Pterodactyl/PM2 will restart it
+        os._exit(0)
+        
+    except Exception as e:
+        await message.answer(t("update_error", lang).format(error=str(e)), parse_mode=ParseMode.HTML)
+
+
 @router.callback_query(Registration.choosing_lang, F.data.in_({"lang_ru", "lang_kk"}))
 async def process_lang(callback: CallbackQuery, state: FSMContext):
     lang = callback.data.split("_")[1]
