@@ -1,229 +1,247 @@
-import sqlite3
+import pymysql
+import pymysql.cursors
 import string
 import random
 from datetime import datetime, timedelta
+import os
+import re
+from dotenv import load_dotenv
 
-DB_PATH = "school_bot.db"
+load_dotenv()
 
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
+DB_HOST = os.getenv("DB_HOST", "db.msk.minerent.net")
+DB_PORT = int(os.getenv("DB_PORT", 3306))
+DB_USER = os.getenv("DB_USER", "u21319_qwgUvpiitb")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "s21319_TgBot")
 
+def get_connection():
+    return pymysql.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True
+    )
 
 def init_db():
-    cursor.executescript("""
+    queries = [
+        """
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tg_id INTEGER UNIQUE NOT NULL,
-            full_name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('student', 'teacher', 'zavuch')),
-            lang TEXT NOT NULL DEFAULT 'ru' CHECK(lang IN ('ru', 'kk')),
-            class_code TEXT,
-            shift INTEGER DEFAULT 1 CHECK(shift IN (1, 2)),
-            sub_end_date TEXT
-        );
-
+            user_id INT PRIMARY KEY AUTO_INCREMENT,
+            tg_id BIGINT UNIQUE NOT NULL,
+            full_name VARCHAR(255) NOT NULL,
+            role ENUM('student', 'teacher', 'zavuch') NOT NULL,
+            lang ENUM('ru', 'kk') NOT NULL DEFAULT 'ru',
+            class_code VARCHAR(50),
+            shift INT DEFAULT 1,
+            sub_end_date VARCHAR(20),
+            platform VARCHAR(50) DEFAULT 'telegram'
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        """,
+        """
         CREATE TABLE IF NOT EXISTS classes (
-            class_code TEXT PRIMARY KEY,
-            class_name TEXT NOT NULL,
-            shift INTEGER NOT NULL CHECK(shift IN (1, 2))
-        );
-
+            class_code VARCHAR(50) PRIMARY KEY,
+            class_name VARCHAR(255) NOT NULL,
+            shift INT NOT NULL
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        """,
+        """
         CREATE TABLE IF NOT EXISTS lessons (
-            class_code TEXT NOT NULL,
-            day_idx INTEGER NOT NULL CHECK(day_idx BETWEEN 0 AND 6),
-            lesson_num INTEGER NOT NULL,
-            lesson_name TEXT NOT NULL,
+            class_code VARCHAR(50) NOT NULL,
+            day_idx INT NOT NULL,
+            lesson_num INT NOT NULL,
+            lesson_name VARCHAR(255) NOT NULL,
             FOREIGN KEY (class_code) REFERENCES classes(class_code),
-            UNIQUE(class_code, day_idx, lesson_num)
-        );
-
+            UNIQUE KEY unique_lesson (class_code, day_idx, lesson_num)
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        """,
+        """
         CREATE TABLE IF NOT EXISTS invite_codes (
-            code TEXT PRIMARY KEY,
-            role TEXT NOT NULL CHECK(role IN ('student', 'teacher')),
-            class_code TEXT,
-            shift INTEGER DEFAULT 1 CHECK(shift IN (1, 2)),
-            created_by INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            is_active INTEGER DEFAULT 1,
-            reusable INTEGER DEFAULT 0,
-            use_count INTEGER DEFAULT 0
-        );
-
+            code VARCHAR(50) PRIMARY KEY,
+            role ENUM('student', 'teacher') NOT NULL,
+            class_code VARCHAR(50),
+            shift INT DEFAULT 1,
+            created_by BIGINT NOT NULL,
+            created_at VARCHAR(50) NOT NULL,
+            is_active TINYINT(1) DEFAULT 1,
+            reusable TINYINT(1) DEFAULT 0,
+            use_count INT DEFAULT 0
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        """,
+        """
         CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-    """)
-    cursor.execute(
-        "INSERT OR IGNORE INTO settings (key, value) VALUES ('bell_mode', 'standard')"
-    )
-    conn.commit()
+            `key` VARCHAR(50) PRIMARY KEY,
+            `value` VARCHAR(255) NOT NULL
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        """
+    ]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            for q in queries:
+                cursor.execute(q)
+            cursor.execute(
+                "INSERT IGNORE INTO settings (`key`, `value`) VALUES ('bell_mode', 'standard')"
+            )
     seed_demo_data()
 
 
 def seed_demo_data():
-    cursor.execute(
-        "INSERT OR IGNORE INTO classes (class_code, class_name, shift) VALUES (?, ?, ?)",
-        ("8Ә", "8 Ә", 1),
-    )
-    schedule = {
-        0: [  # Понедельник
-            "Сынып сағаты",
-            "Алгебра",
-            "Қазақ тілі",
-            "Химия",
-            "Орыс тілі мен әдебиеті",
-            "Шетіл тілі",
-            "Қазақстан тарихы",
-            "Жаһандық құзыреттілік",
-        ],
-        1: [  # Вторник
-            "Химия",
-            "Орыс тілі мен әдебиеті",
-            "Информатика",
-            "Қазақ әдебиеті",
-            "Алгебра",
-            "Дүние жүзі тарихы",
-            "География",
-        ],
-        2: [  # Среда
-            "Алгебра",
-            "Қазақстан тарихы",
-            "Қазақ әдебиеті",
-            "Физика",
-            "Шетіл тілі",
-            "Орыс тілі мен әдебиеті",
-            "Дене шынықтыру",
-        ],
-        3: [  # Четверг
-            "Дене шынықтыру",
-            "Қазақ тілі",
-            "Шетіл тілі",
-            "Биология",
-            "Алгебра",
-            "Көркем еңбек",
-        ],
-        4: [  # Пятница
-            "Биология",
-            "География",
-            "Қазақ әдебиеті",
-            "Геометрия",
-            "Физика",
-            "Дене шынықтыру",
-        ],
-    }
-    for day_idx, lessons in schedule.items():
-        for num, name in enumerate(lessons, 1):
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
             cursor.execute(
-                "INSERT OR IGNORE INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (?, ?, ?, ?)",
-                ("8Ә", day_idx, num, name),
+                "INSERT IGNORE INTO classes (class_code, class_name, shift) VALUES (%s, %s, %s)",
+                ("8Ә", "8 Ә", 1),
             )
-    conn.commit()
+            schedule = {
+                0: [  # Понедельник
+                    "Сынып сағаты", "Алгебра", "Қазақ тілі", "Химия",
+                    "Орыс тілі мен әдебиеті", "Шетіл тілі", "Қазақстан тарихы", "Жаһандық құзыреттілік",
+                ],
+                1: [  # Вторник
+                    "Химия", "Орыс тілі мен әдебиеті", "Информатика", "Қазақ әдебиеті",
+                    "Алгебра", "Дүние жүзі тарихы", "География",
+                ],
+                2: [  # Среда
+                    "Алгебра", "Қазақстан тарихы", "Қазақ әдебиеті", "Физика",
+                    "Шетіл тілі", "Орыс тілі мен әдебиеті", "Дене шынықтыру",
+                ],
+                3: [  # Четверг
+                    "Дене шынықтыру", "Қазақ тілі", "Шетіл тілі", "Биология",
+                    "Алгебра", "Көркем еңбек",
+                ],
+                4: [  # Пятница
+                    "Биология", "География", "Қазақ әдебиеті", "Геометрия",
+                    "Физика", "Дене шынықтыру",
+                ],
+            }
+            for day_idx, lessons in schedule.items():
+                for num, name in enumerate(lessons, 1):
+                    cursor.execute(
+                        "INSERT IGNORE INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
+                        ("8Ә", day_idx, num, name),
+                    )
 
 
 def get_setting(key: str, default: str = "") -> str:
-    cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
-    row = cursor.fetchone()
-    return row["value"] if row else default
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT `value` FROM settings WHERE `key` = %s", (key,))
+            row = cursor.fetchone()
+            return row["value"] if row else default
 
 
 def set_setting(key: str, value: str):
-    cursor.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (key, value),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "REPLACE INTO settings (`key`, `value`) VALUES (%s, %s)",
+                (key, value),
+            )
 
 
 def generate_code(length: int = 8) -> str:
     chars = string.ascii_uppercase + string.digits
     while True:
         code = "".join(random.choices(chars, k=length))
-        cursor.execute("SELECT code FROM invite_codes WHERE code = ?", (code,))
-        if not cursor.fetchone():
-            return code
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT code FROM invite_codes WHERE code = %s", (code,))
+                if not cursor.fetchone():
+                    return code
 
 
 def create_invite_code(role: str, class_code: str, shift: int,
                        created_by: int, reusable: bool = False) -> str:
     code = generate_code()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute(
-        """INSERT INTO invite_codes
-           (code, role, class_code, shift, created_by, created_at, is_active, reusable, use_count)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, 0)""",
-        (code, role, class_code, shift, created_by, now, int(reusable)),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO invite_codes
+                   (code, role, class_code, shift, created_by, created_at, is_active, reusable, use_count)
+                   VALUES (%s, %s, %s, %s, %s, %s, 1, %s, 0)""",
+                (code, role, class_code, shift, created_by, now, int(reusable)),
+            )
     return code
 
 
 def use_invite_code(code: str, tg_id: int) -> dict | None:
-    cursor.execute(
-        "SELECT * FROM invite_codes WHERE code = ? AND is_active = 1",
-        (code,),
-    )
-    row = cursor.fetchone()
-    if not row:
-        return None
-    data = dict(row)
-    if data["reusable"]:
-        cursor.execute(
-            "UPDATE invite_codes SET use_count = use_count + 1 WHERE code = ?",
-            (code,),
-        )
-    else:
-        cursor.execute(
-            "UPDATE invite_codes SET use_count = 1, is_active = 0 WHERE code = ?",
-            (code,),
-        )
-    conn.commit()
-    return data
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM invite_codes WHERE code = %s AND is_active = 1",
+                (code,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            if row["reusable"]:
+                cursor.execute(
+                    "UPDATE invite_codes SET use_count = use_count + 1 WHERE code = %s",
+                    (code,),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE invite_codes SET use_count = 1, is_active = 0 WHERE code = %s",
+                    (code,),
+                )
+            return row
 
 
 def get_codes_by_creator(created_by: int):
-    cursor.execute(
-        "SELECT * FROM invite_codes WHERE created_by = ? ORDER BY created_at DESC",
-        (created_by,),
-    )
-    return [dict(r) for r in cursor.fetchall()]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM invite_codes WHERE created_by = %s ORDER BY created_at DESC",
+                (created_by,),
+            )
+            return cursor.fetchall()
 
 
 def get_active_codes_by_creator(created_by: int):
-    cursor.execute(
-        "SELECT * FROM invite_codes WHERE created_by = ? AND is_active = 1 ORDER BY created_at DESC",
-        (created_by,),
-    )
-    return [dict(r) for r in cursor.fetchall()]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM invite_codes WHERE created_by = %s AND is_active = 1 ORDER BY created_at DESC",
+                (created_by,),
+            )
+            return cursor.fetchall()
 
 
 def add_user(tg_id: int, full_name: str, role: str, lang: str,
              class_code: str = None, shift: int = 1, platform: str = "telegram") -> dict:
     trial_end = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
-    cursor.execute(
-        """INSERT OR REPLACE INTO users
-           (tg_id, full_name, role, lang, class_code, shift, sub_end_date, platform)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (tg_id, full_name, role, lang, class_code, shift, trial_end, platform),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """REPLACE INTO users
+                   (tg_id, full_name, role, lang, class_code, shift, sub_end_date, platform)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (tg_id, full_name, role, lang, class_code, shift, trial_end, platform),
+            )
     return get_user(tg_id)
 
 
 def delete_user(tg_id: int):
-    cursor.execute("DELETE FROM users WHERE tg_id = ?", (tg_id,))
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM users WHERE tg_id = %s", (tg_id,))
+
 
 def get_user(tg_id: int):
-    cursor.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE tg_id = %s", (tg_id,))
+            return cursor.fetchone()
 
 
 def is_subscription_active(tg_id: int) -> bool:
     user = get_user(tg_id)
-    if not user or not user["sub_end_date"]:
+    if not user or not user.get("sub_end_date"):
         return False
     end = datetime.strptime(user["sub_end_date"], "%Y-%m-%d").date()
     return end >= datetime.now().date()
@@ -237,91 +255,98 @@ def extend_subscription(tg_id: int, days: int = 30):
     if current_end.date() < datetime.now().date():
         current_end = datetime.now()
     new_end = (current_end + timedelta(days=days)).strftime("%Y-%m-%d")
-    cursor.execute(
-        "UPDATE users SET sub_end_date = ? WHERE tg_id = ?",
-        (new_end, tg_id),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE users SET sub_end_date = %s WHERE tg_id = %s",
+                (new_end, tg_id),
+            )
 
 
 def get_active_users(shift: int = None):
     today = datetime.now().strftime("%Y-%m-%d")
-    if shift:
-        cursor.execute(
-            "SELECT * FROM users WHERE sub_end_date >= ? AND shift = ?",
-            (today, shift),
-        )
-    else:
-        cursor.execute(
-            "SELECT * FROM users WHERE sub_end_date >= ?",
-            (today,),
-        )
-    return [dict(r) for r in cursor.fetchall()]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            if shift:
+                cursor.execute(
+                    "SELECT * FROM users WHERE sub_end_date >= %s AND shift = %s",
+                    (today, shift),
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM users WHERE sub_end_date >= %s",
+                    (today,),
+                )
+            return cursor.fetchall()
 
 
 def get_all_users():
-    cursor.execute("SELECT * FROM users")
-    return [dict(r) for r in cursor.fetchall()]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM users")
+            return cursor.fetchall()
 
 
 def get_users_by_class(class_code: str):
-    cursor.execute(
-        "SELECT * FROM users WHERE class_code = ?",
-        (class_code,),
-    )
-    return [dict(r) for r in cursor.fetchall()]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM users WHERE class_code = %s",
+                (class_code,),
+            )
+            return cursor.fetchall()
 
 
 def add_class(class_code: str, class_name: str, shift: int):
-    cursor.execute(
-        "INSERT OR REPLACE INTO classes (class_code, class_name, shift) VALUES (?, ?, ?)",
-        (class_code, class_name, shift),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "REPLACE INTO classes (class_code, class_name, shift) VALUES (%s, %s, %s)",
+                (class_code, class_name, shift),
+            )
 
 
 def get_class(class_code: str):
-    cursor.execute("SELECT * FROM classes WHERE class_code = ?", (class_code,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
-
-
-def add_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
-    cursor.execute(
-        "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (?, ?, ?, ?)",
-        (class_code, day_idx, lesson_num, lesson_name),
-    )
-    conn.commit()
-
-
-def get_lessons(class_code: str, day_idx: int):
-    cursor.execute(
-        "SELECT * FROM lessons WHERE class_code = ? AND day_idx = ? ORDER BY lesson_num",
-        (class_code, day_idx),
-    )
-    return [dict(r) for r in cursor.fetchall()]
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM classes WHERE class_code = %s", (class_code,))
+            return cursor.fetchone()
 
 
 def delete_lessons(class_code: str, day_idx: int):
-    cursor.execute(
-        "DELETE FROM lessons WHERE class_code = ? AND day_idx = ?",
-        (class_code, day_idx),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM lessons WHERE class_code = %s AND day_idx = %s",
+                (class_code, day_idx),
+            )
 
 
 def add_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
-    cursor.execute(
-        "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (?, ?, ?, ?)",
-        (class_code, day_idx, lesson_num, lesson_name),
-    )
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
+                (class_code, day_idx, lesson_num, lesson_name),
+            )
+
+
+def get_lessons(class_code: str, day_idx: int):
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM lessons WHERE class_code = %s AND day_idx = %s ORDER BY lesson_num",
+                (class_code, day_idx),
+            )
+            return cursor.fetchall()
+
 
 def update_user_lang(tg_id: int, lang: str):
-    cursor.execute("UPDATE users SET lang = ? WHERE tg_id = ?", (lang, tg_id))
-    conn.commit()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET lang = %s WHERE tg_id = %s", (lang, tg_id))
 
-import re
+
 def format_class(class_code: str) -> str:
     if not class_code:
         return "—"
