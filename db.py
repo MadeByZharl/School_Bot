@@ -327,6 +327,14 @@ def delete_lessons(class_code: str, day_idx: int):
                 (class_code, day_idx),
             )
 
+def delete_single_lesson(class_code: str, day_idx: int, lesson_num: int):
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM lessons WHERE class_code = %s AND day_idx = %s AND lesson_num = %s",
+                (class_code, day_idx, lesson_num),
+            )
+
 
 def add_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
     with get_connection() as conn:
@@ -348,6 +356,14 @@ def set_weekly_schedule(class_code: str, schedule: dict):
                         (class_code, day_idx, num, str(name).strip())
                     )
 
+def update_single_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "REPLACE INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
+                (class_code, day_idx, lesson_num, lesson_name),
+            )
+
 
 def get_lessons(class_code: str, day_idx: int):
     with get_connection() as conn:
@@ -357,6 +373,14 @@ def get_lessons(class_code: str, day_idx: int):
                 (class_code, day_idx),
             )
             return cursor.fetchall()
+
+def get_all_subjects():
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT DISTINCT lesson_name FROM lessons WHERE lesson_name != '' AND lesson_name IS NOT NULL ORDER BY lesson_name LIMIT 50"
+            )
+            return [row["lesson_name"] for row in cursor.fetchall()]
 
 
 def update_user_lang(tg_id: int, lang: str):
