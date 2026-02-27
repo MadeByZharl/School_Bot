@@ -61,7 +61,7 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS invite_codes (
             code VARCHAR(50) PRIMARY KEY,
-            role ENUM('student', 'teacher') NOT NULL,
+            role ENUM('student', 'teacher', 'zavuch') NOT NULL,
             class_code VARCHAR(50),
             shift INT DEFAULT 1,
             created_by BIGINT NOT NULL,
