@@ -1,0 +1,5 @@
+aiogram
+requests
+python-dotenv
+pytz
+whatsapp-api-client-python
