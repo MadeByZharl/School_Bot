@@ -4,3 +4,8 @@ python-dotenv
 pytz
 whatsapp-api-client-python
 PyMySQL
+
+fastapi
+uvicorn
+jinja2
+python-multipart

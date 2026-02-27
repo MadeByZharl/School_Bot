@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — Панель Завуча</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="glass login-card">
+            <h2>SchoolBot Admin</h2>
+            <p>Панель управления расписанием</p>
+            
+            {% if error %}
+            <div class="error-msg">{{ error }}</div>
+            {% endif %}
+
+            <form action="/login" method="POST">
+                <div class="input-group">
+                    <input type="password" name="code" placeholder="Введите код завуча (напр. ZAVUCH2026)" required autocomplete="off">
+                </div>
+                <button type="submit" class="btn">Войти в панель</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

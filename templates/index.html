@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель Завуча — SchoolBot</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="dashboard">
+        <!-- Sidebar Navigation -->
+        <nav class="glass sidebar">
+            <div class="brand">🏫 SchoolBot</div>
+            <ul class="nav-links">
+                <li><a href="/" class="active">Обзор кодов</a></li>
+                <li><a href="/schedule">Расписание</a></li>
+                <li><a href="/users">Пользователи</a></li>
+                <li><a href="/settings">Настройки</a></li>
+            </ul>
+        </nav>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <header class="header">
+                <div>
+                    <h1>Коды доступа</h1>
+                    <p style="color: var(--text-muted); margin-top: 5px;">Управляйте кодами для учеников и учителей</p>
+                </div>
+                <a href="/logout" class="logout-btn">Выход</a>
+            </header>
+
+            <div class="glass panel">
+                <h3>Активные инвайт-коды</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Код</th>
+                            <th>Роль</th>
+                            <th>Смена</th>
+                            <th>Класс</th>
+                            <th>Активаций</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in codes %}
+                        <tr>
+                            <td><b style="color: var(--accent);">{{ c.code }}</b></td>
+                            <td><span class="badge {{ c.role }}">{{ c.role }}</span></td>
+                            <td>{{ c.shift }}</td>
+                            <td>{{ c.class_code if c.class_code else "—" }}</td>
+                            <td>{{ c.use_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <br>
+                <form action="/generate_code" method="POST" style="display: flex; gap: 10px; margin-top: 15px;">
+                    <select name="role" class="input-group"
+                        style="padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--card-border);">
+                        <option value="student">Ученик</option>
+                        <option value="teacher">Учитель</option>
+                    </select>
+                    <input type="text" name="class_code" placeholder="Класс (напр. 8 А)"
+                        style="padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--card-border);">
+                    <input type="number" name="shift" placeholder="Смена" value="1" min="1" max="2"
+                        style="padding: 10px; border-radius: 8px; width: 80px; background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--card-border);">
+                    <button type="submit" class="btn" style="width: auto; padding: 10px 20px;">Создать код</button>
+                </form>
+            </div>
+        </main>
+    </div>
+</body>
+
+</html>

@@ -14,6 +14,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.enums import ParseMode
 
+import uvicorn
+from web_app import app as fastapi_app
+
 from db import (
     init_db, add_user, get_user,
     get_all_users, get_users_by_class, get_lessons,
@@ -1098,8 +1101,16 @@ async def on_startup():
 
 async def main():
     dp.startup.register(on_startup)
-    await dp.start_polling(bot)
-
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, log_level="info")
+    web_server = uvicorn.Server(config)
+    
+    await asyncio.gather(
+        dp.start_polling(bot),
+        web_server.serve()
+    )
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
