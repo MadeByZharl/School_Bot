@@ -352,6 +352,40 @@ async def cmd_update(message: Message):
         await message.answer(t("update_error", lang).format(error=str(e)), parse_mode=ParseMode.HTML)
 
 
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, state: FSMContext):
+    """Exclusive command for the bot owner (SUPERUSER)."""
+    await state.clear()
+    if message.from_user.id != ADMIN_ID:
+        # Invisible to non-admins
+        return
+
+    user = get_user(message.from_user.id)
+    lang = user["lang"] if user else "ru"
+    
+    stats = get_bot_stats()
+    res = f"👑 <b>Панель Владельца</b> (SUPERUSER)\n\n"
+    res += t("stats_users_total", lang).format(total=stats["total"])
+    res += t("stats_roles", lang).format(
+        students=stats["roles"].get("student", 0),
+        teachers=stats["roles"].get("teacher", 0),
+        zavuchs=stats["roles"].get("zavuch", 0)
+    )
+    
+    if stats["classes"]:
+        res += t("stats_classes_title", lang)
+        for c in stats["classes"]:
+            res += t("stats_class_item", lang).format(
+                class_name=format_class(c["class_code"]),
+                count=c["count"]
+            )
+    
+    res += f"\n🌐 Web Management: <code>{WEBAPP_URL}</code>"
+    res += f"\n⚙️ System: Online"
+    
+    await message.answer(res, parse_mode=ParseMode.HTML)
+
+
 @router.callback_query(Registration.choosing_lang, F.data.in_({"lang_ru", "lang_kk"}))
 async def process_lang(callback: CallbackQuery, state: FSMContext):
     lang = callback.data.split("_")[1]
