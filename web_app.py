@@ -1,22 +1,25 @@
-from fastapi import FastAPI, Request, Form, Response, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request, Form, Response, Depends, HTTPException, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 import db
-import urllib.parse
-from datetime import datetime
+import os
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# Enable CORS for React Dev Server
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Simple dependency to check auth cookie
 def get_current_admin(request: Request):
-    auth_code = request.cookies.get("zavuch_auth")
+    auth_code = request.cookies.get("zavuch_auth") or request.headers.get("Authorization")
     if not auth_code:
         return None
-    # Verify code exists and is Zavuch
     with db.get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT code FROM invite_codes WHERE code=%s AND role='zavuch'", (auth_code,))
@@ -24,69 +27,128 @@ def get_current_admin(request: Request):
                 return auth_code
     return None
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    admin = get_current_admin(request)
-    if not admin:
-        return RedirectResponse(url="/login", status_code=302)
-    
-    # Get all active codes
-    codes = []
-    with db.get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM invite_codes WHERE is_active=1 ORDER BY created_at DESC LIMIT 50")
-            codes = cursor.fetchall()
-            
-    return templates.TemplateResponse("index.html", {"request": request, "codes": codes})
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_get(request: Request, error: str = None):
-    return templates.TemplateResponse("login.html", {"request": request, "error": error})
-
-@app.post("/login")
-async def login_post(response: Response, code: str = Form(...)):
-    code_text = code.strip().upper()
+@app.post("/api/login")
+async def api_login(response: Response, payload: dict = Body(...)):
+    code_text = payload.get("code", "").strip().upper()
     with db.get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM invite_codes WHERE code=%s AND role='zavuch'", (code_text,))
-            row = cursor.fetchone()
-            if row:
-                res = RedirectResponse(url="/", status_code=302)
-                res.set_cookie(key="zavuch_auth", value=code_text, max_age=86400*30) # 30 days
+            if cursor.fetchone():
+                res = JSONResponse({"success": True, "token": code_text})
+                res.set_cookie("zavuch_auth", code_text, max_age=86400*30)
                 return res
-            
-    # Fail
-    return RedirectResponse(url="/login?error=" + urllib.parse.quote("Неверный код доступа"), status_code=302)
+    raise HTTPException(status_code=401, detail="Неверный код доступа")
 
-@app.get("/logout")
-async def logout():
-    res = RedirectResponse(url="/login", status_code=302)
-    res.delete_cookie("zavuch_auth")
-    return res
+@app.get("/api/codes")
+async def api_get_codes(request: Request):
+    if not get_current_admin(request):
+        raise HTTPException(status_code=401)
+    
+    with db.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT code, role, class_code, shift, use_count FROM invite_codes WHERE is_active=1 ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            # map keys
+            return [
+                {
+                    "code": r['code'],
+                    "role": r['role'],
+                    "class": r['class_code'] or "-",
+                    "shift": f"{r['shift']} смена" if r['shift'] else "-",
+                    "uses": r['use_count']
+                } for r in rows
+            ]
 
-@app.post("/generate_code")
-async def generate_code(
-    request: Request,
-    role: str = Form(...),
-    class_code: str = Form(""),
-    shift: int = Form(1)
-):
-    admin = get_current_admin(request)
-    if not admin:
-        return RedirectResponse(url="/login", status_code=302)
+@app.post("/api/codes")
+async def api_create_code(request: Request, payload: dict = Body(...)):
+    if not get_current_admin(request):
+        raise HTTPException(status_code=401)
     
-    # Validation
-    if role not in ["student", "teacher"]:
-        role = "student"
-        
-    class_code_val = class_code.strip() if class_code.strip() else None
+    role = payload.get("role", "student")
+    if role not in ["student", "teacher"]: role = "student"
     
-    # Create the code
-    new_code = db.create_invite_code(
+    class_code = payload.get("class_code", "").strip()
+    shift = payload.get("shift", 1)
+    
+    db.create_invite_code(
         role=role, 
-        class_code=class_code_val, 
+        class_code=class_code if class_code else None, 
         shift=shift, 
-        creator_id=0 # Web dashboard owner
+        creator_id=0
     )
+    return {"success": True}
+
+@app.get("/api/users")
+async def api_get_users(request: Request):
+    if not get_current_admin(request):
+        raise HTTPException(status_code=401)
+    with db.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT u.id, u.full_name, u.tg_id, u.role, u.class_code, u.shift FROM users u")
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": r['id'],
+                    "name": r['full_name'] or "Без имени",
+                    "tgId": str(r['tg_id']),
+                    "role": r['role'],
+                    "class": r['class_code'] or "-",
+                    "shift": f"{r['shift']} смена" if r['shift'] else "-"
+                } for r in rows
+            ]
+
+@app.get("/api/schedule")
+async def api_get_schedule(request: Request, class_code: str):
+    if not get_current_admin(request):
+        raise HTTPException(status_code=401)
     
-    return RedirectResponse(url="/", status_code=302)
+    # 5 days, 8 lessons max
+    matrix = [["" for _ in range(5)] for _ in range(10)]
+    
+    with db.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT weekday, lesson_number, name FROM lessons WHERE class_code=%s", (class_code,))
+            for row in cursor.fetchall():
+                w = row['weekday']
+                l = row['lesson_number']
+                if 0 <= w <= 4 and 1 <= l <= 10:
+                    matrix[l-1][w] = row['name']
+    
+    # trim empty trailing rows
+    while len(matrix) > 1 and all(cell == "" for cell in matrix[-1]):
+        matrix.pop()
+        
+    if not matrix:
+        matrix = [["" for _ in range(5)]]
+        
+    return matrix
+
+@app.post("/api/schedule")
+async def api_save_schedule(request: Request, payload: dict = Body(...)):
+    if not get_current_admin(request):
+        raise HTTPException(status_code=401)
+    
+    class_code = payload.get("class_code")
+    matrix = payload.get("schedule", [])
+    
+    if not class_code:
+         raise HTTPException(status_code=400, detail="class_code required")
+         
+    with db.get_connection() as conn:
+        with conn.cursor() as cursor:
+            # Delete old schedule for class
+            cursor.execute("DELETE FROM lessons WHERE class_code=%s", (class_code,))
+            
+            # Insert new
+            for l_idx, row in enumerate(matrix):
+                lesson_number = l_idx + 1
+                for w_idx, name in enumerate(row):
+                    if name and str(name).strip() and str(name).strip() != "-":
+                        cursor.execute(
+                            "INSERT INTO lessons (class_code, weekday, lesson_number, name) VALUES (%s, %s, %s, %s)",
+                            (class_code, w_idx, lesson_number, str(name).strip())
+                        )
+    return {"success": True}
+
+# Serve React static files in production
+app.mount("/", StaticFiles(directory="Scholl-ss-main/dist", html=True), name="frontend")
