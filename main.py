@@ -270,7 +270,7 @@ async def cmd_logout(message: Message, state: FSMContext):
 @router.message(Command("update"))
 async def cmd_update(message: Message):
     user = get_user(message.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
@@ -584,7 +584,7 @@ async def cmd_help(message: Message, state: FSMContext):
 async def btn_bell_mode(message: Message, state: FSMContext):
     await state.clear()
     user = get_user(message.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
@@ -651,7 +651,7 @@ async def process_bell_mode(callback: CallbackQuery):
 async def btn_edit_schedule_inline(message: Message, state: FSMContext):
     await state.clear()
     user = get_user(message.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
@@ -1024,7 +1024,7 @@ async def btn_my_codes(message: Message, state: FSMContext):
 async def btn_send_all(message: Message, state: FSMContext):
     await state.clear()
     user = get_user(message.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
@@ -1101,7 +1101,7 @@ async def broadcast_class_confirm(message: Message, state: FSMContext):
 async def btn_send_class_zavuch(message: Message, state: FSMContext):
     await state.clear()
     user = get_user(message.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
