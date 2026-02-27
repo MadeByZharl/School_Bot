@@ -283,8 +283,11 @@ async def cmd_update(message: Message):
     import os
     
     try:
+        # Get branch from env or default to main
+        branch = os.getenv("GIT_BRANCH", "main")
+        
         # Pull latest from git
-        process = subprocess.Popen(["git", "pull"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(["git", "pull", "origin", branch], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         stdout, stderr = process.communicate()
         
         if process.returncode != 0:
