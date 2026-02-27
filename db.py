@@ -390,3 +390,29 @@ def format_class(class_code: str) -> str:
     if match:
         return f'{match.group(1)} "{match.group(2).upper()}"'
     return str(class_code)
+
+
+def get_bot_stats():
+    """Returns a dictionary with total users, count by role, and count by class."""
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            # Total users
+            cursor.execute("SELECT COUNT(*) as total FROM users")
+            total = cursor.fetchone()["total"]
+
+            # By role
+            cursor.execute("SELECT role, COUNT(*) as count FROM users GROUP BY role")
+            roles_raw = cursor.fetchall()
+            roles = {"student": 0, "teacher": 0, "zavuch": 0}
+            for r in roles_raw:
+                roles[r["role"]] = r["count"]
+
+            # By class
+            cursor.execute("SELECT class_code, COUNT(*) as count FROM users WHERE role = 'student' GROUP BY class_code")
+            classes = cursor.fetchall()
+
+            return {
+                "total": total,
+                "roles": roles,
+                "classes": classes
+            }

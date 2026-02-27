@@ -84,11 +84,11 @@ async def api_get_users(request: Request):
         raise HTTPException(status_code=401)
     with db.get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT u.id, u.full_name, u.tg_id, u.role, u.class_code, u.shift FROM users u")
+            cursor.execute("SELECT u.user_id, u.full_name, u.tg_id, u.role, u.class_code, u.shift FROM users u")
             rows = cursor.fetchall()
             return [
                 {
-                    "id": r['id'],
+                    "id": r['user_id'],
                     "name": r['full_name'] or "Без имени",
                     "tgId": str(r['tg_id']),
                     "role": r['role'],
@@ -96,6 +96,13 @@ async def api_get_users(request: Request):
                     "shift": f"{r['shift']} смена" if r['shift'] else "-"
                 } for r in rows
             ]
+
+
+@app.get("/api/stats")
+async def api_get_stats(request: Request):
+    if not get_current_admin(request):
+        raise HTTPException(status_code=401)
+    return db.get_bot_stats()
 
 @app.get("/api/schedule")
 async def api_get_schedule(request: Request, class_code: str):
@@ -107,12 +114,12 @@ async def api_get_schedule(request: Request, class_code: str):
     
     with db.get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT weekday, lesson_number, name FROM lessons WHERE class_code=%s", (class_code,))
+            cursor.execute("SELECT day_idx, lesson_num, lesson_name FROM lessons WHERE class_code=%s", (class_code,))
             for row in cursor.fetchall():
-                w = row['weekday']
-                l = row['lesson_number']
+                w = row['day_idx']
+                l = row['lesson_num']
                 if 0 <= w <= 4 and 1 <= l <= 10:
-                    matrix[l-1][w] = row['name']
+                    matrix[l-1][w] = row['lesson_name']
     
     # trim empty trailing rows
     while len(matrix) > 1 and all(cell == "" for cell in matrix[-1]):
@@ -141,12 +148,12 @@ async def api_save_schedule(request: Request, payload: dict = Body(...)):
             
             # Insert new
             for l_idx, row in enumerate(matrix):
-                lesson_number = l_idx + 1
+                lesson_num = l_idx + 1
                 for w_idx, name in enumerate(row):
                     if name and str(name).strip() and str(name).strip() != "-":
                         cursor.execute(
-                            "INSERT INTO lessons (class_code, weekday, lesson_number, name) VALUES (%s, %s, %s, %s)",
-                            (class_code, w_idx, lesson_number, str(name).strip())
+                            "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
+                            (class_code, w_idx, lesson_num, str(name).strip())
                         )
     return {"success": True}
 

@@ -401,6 +401,36 @@ TEXTS = {
         "ru": "❌ <b>Ошибка при обновлении:</b>\n\n<code>{error}</code>",
         "kk": "❌ <b>Жаңарту кезіндегі қате:</b>\n\n<code>{error}</code>",
     },
+    "menu_stats": {
+        "ru": "📊 Статистика",
+        "kk": "📊 Статистика",
+    },
+    "stats_title": {
+        "ru": "📊 <b>Статистика бота</b>\n\n",
+        "kk": "📊 <b>Бот статистикасы</b>\n\n",
+    },
+    "stats_users_total": {
+        "ru": "👥 Всего пользователей: <b>{total}</b>\n",
+        "kk": "👥 Жалпы пайдаланушылар: <b>{total}</b>\n",
+    },
+    "stats_roles": {
+        "ru": "\n🔹 <b>По ролям:</b>\n"
+              "└ Ученики: {students}\n"
+              "└ Учителя: {teachers}\n"
+              "└ Завучи: {zavuchs}\n",
+        "kk": "\n🔹 <b>Рөлдер бойынша:</b>\n"
+              "└ Оқушылар: {students}\n"
+              "└ Мұғалімдер: {teachers}\n"
+              "└ Завучтар: {zavuchs}\n",
+    },
+    "stats_classes_title": {
+        "ru": "\n🏫 <b>По классам:</b>\n",
+        "kk": "\n🏫 <b>Сыныптар бойынша:</b>\n",
+    },
+    "stats_class_item": {
+        "ru": "└ {class_name}: <b>{count}</b>\n",
+        "kk": "└ {class_name}: <b>{count}</b>\n",
+    },
 }
 
 LESSON_TRANSLATIONS = {

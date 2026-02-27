@@ -25,7 +25,7 @@ from db import (
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
-    format_class, update_user_lang,
+    format_class, update_user_lang, get_bot_stats,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
@@ -130,7 +130,8 @@ ALL_MENU_BUTTONS = (
     BTN("menu_settings") | BTN("menu_help") |
     BTN("menu_gen_student_code") | BTN("menu_gen_teacher_code") |
     BTN("menu_send_class") | BTN("menu_send_all") | BTN("menu_my_codes") |
-    BTN("menu_bell_mode") | BTN("menu_send_class_zavuch") | BTN("menu_edit_schedule")
+    BTN("menu_bell_mode") | BTN("menu_send_class_zavuch") | BTN("menu_edit_schedule") |
+    BTN("menu_stats")
 )
 
 
@@ -212,6 +213,7 @@ def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarku
         ])
         rows.append([
             KeyboardButton(text=t("menu_edit_schedule", lang)),
+            KeyboardButton(text=t("menu_stats", lang)),
         ])
 
     return ReplyKeyboardMarkup(
@@ -674,6 +676,37 @@ async def process_bell_mode(callback: CallbackQuery):
         parse_mode=ParseMode.HTML,
     )
     await callback.answer()
+
+
+@router.message(F.text.in_(BTN("menu_stats")))
+async def btn_stats(message: Message, state: FSMContext):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+        lang = user["lang"] if user else "ru"
+        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        return
+
+    lang = user["lang"]
+    stats = get_bot_stats()
+    
+    res = t("stats_title", lang)
+    res += t("stats_users_total", lang).format(total=stats["total"])
+    res += t("stats_roles", lang).format(
+        students=stats["roles"].get("student", 0),
+        teachers=stats["roles"].get("teacher", 0),
+        zavuchs=stats["roles"].get("zavuch", 0)
+    )
+    
+    if stats["classes"]:
+        res += t("stats_classes_title", lang)
+        for c in stats["classes"]:
+            res += t("stats_class_item", lang).format(
+                class_name=format_class(c["class_code"]),
+                count=c["count"]
+            )
+            
+    await message.answer(res, parse_mode=ParseMode.HTML)
     # Уведомить всех пользователей
     all_users = get_all_users()
     sent = 0
