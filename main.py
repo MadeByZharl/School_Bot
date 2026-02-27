@@ -1272,45 +1272,59 @@ async def schedule_notifier():
             bell_mode = get_setting("bell_mode", "standard")
             all_users = get_all_users()
             shifts = get_shifts(bell_mode, weekday)
+
+            # Оптимизация: кешируем уроки для каждого класса на эту итерацию
+            class_lessons_cache = {}
+
             for shift_num, shift_lessons in shifts.items():
                 shift_users = [u for u in all_users if u["shift"] == shift_num]
+                if not shift_users:
+                    continue
+
                 for lesson_num, times in shift_lessons.items():
-                    if now_time == times["start"]:
-                        sent = 0
-                        for user in shift_users:
-                            lang = user["lang"]
-                            lessons = get_lessons(user.get("class_code", ""), weekday)
-                            lesson_name = "—"
-                            for ls in lessons:
-                                if ls["lesson_num"] == lesson_num:
-                                    lesson_name = ls["lesson_name"]
-                                    break
+                    is_start = now_time == times["start"]
+                    is_end = now_time == times["end"]
+
+                    if not is_start and not is_end:
+                        continue
+
+                    sent = 0
+                    for user in shift_users:
+                        class_code = user.get("class_code")
+                        if not class_code:
+                            continue
+
+                        # Получаем уроки класса
+                        if class_code not in class_lessons_cache:
+                            class_lessons_cache[class_code] = {
+                                l["lesson_num"]: l["lesson_name"]
+                                for l in get_lessons(class_code, weekday)
+                            }
+                        
+                        lessons_map = class_lessons_cache[class_code]
+
+                        # Если этого урока нет в расписании класса — НЕ уведомляем
+                        if lesson_num not in lessons_map:
+                            continue
+
+                        lang = user["lang"]
+                        if is_start:
                             text = t("lesson_start", lang).format(
                                 num=lesson_num,
-                                name=lesson_name,
+                                name=lessons_map[lesson_num],
                                 start=times["start"],
                                 end=times["end"],
                             )
-                            try:
-                                await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
-                                sent += 1
-                                if sent % 25 == 0:
-                                    await asyncio.sleep(1)
-                            except Exception as e:
-                                logger.error(f"Notify error {user['tg_id']}: {e}")
-
-                    elif now_time == times["end"]:
-                        sent = 0
-                        for user in shift_users:
-                            lang = user["lang"]
+                        else:  # is_end
                             text = t("lesson_end", lang).format(num=lesson_num)
-                            try:
-                                await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
-                                sent += 1
-                                if sent % 25 == 0:
-                                    await asyncio.sleep(1)
-                            except Exception as e:
-                                logger.error(f"Notify error {user['tg_id']}: {e}")
+
+                        try:
+                            await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
+                            sent += 1
+                            if sent % 25 == 0:
+                                await asyncio.sleep(1)
+                        except Exception as e:
+                            logger.error(f"Notify error {user['tg_id']}: {e}")
         except Exception as e:
             logger.error(f"Scheduler error: {e}")
 
