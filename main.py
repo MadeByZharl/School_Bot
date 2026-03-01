@@ -1198,7 +1198,12 @@ async def broadcast_all_confirm(message: Message, state: FSMContext):
     lang = user["lang"] if user else "ru"
     all_users = get_all_users()
     preview = message.text[:200] + ("..." if len(message.text) > 200 else "")
-    await state.update_data(broadcast_text=message.text, broadcast_target="all")
+    sender_username = f"@{message.from_user.username}" if message.from_user.username else user["full_name"]
+    await state.update_data(
+        broadcast_text=message.text, 
+        broadcast_target="all",
+        broadcast_sender_name=sender_username
+    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t("btn_confirm_send", lang), callback_data="broadcast_confirm")],
         [InlineKeyboardButton(text=t("btn_cancel_send", lang), callback_data="broadcast_cancel")],
@@ -1234,11 +1239,12 @@ async def broadcast_class_confirm(message: Message, state: FSMContext):
         return
     class_users = get_users_by_class(user["class_code"])
     preview = message.text[:200] + ("..." if len(message.text) > 200 else "")
+    sender_username = f"@{message.from_user.username}" if message.from_user.username else user["full_name"]
     await state.update_data(
         broadcast_text=message.text,
         broadcast_target="class",
         broadcast_class=user["class_code"],
-        broadcast_sender_name=user["full_name"],
+        broadcast_sender_name=sender_username,
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t("btn_confirm_send", lang), callback_data="broadcast_confirm")],
@@ -1315,11 +1321,12 @@ async def broadcast_execute(callback: CallbackQuery, state: FSMContext):
     if target == "all":
         recipients = get_all_users()
         template_key = "broadcast_admin"
-        format_args = lambda u_lang: {"text": text}
+        sender_name = data.get("broadcast_sender_name", "Администратор")
+        format_args = lambda u_lang: {"name": sender_name, "text": text}
     else:
         class_code = data.get("broadcast_class", "")
         recipients = get_users_by_class(class_code)
-        sender_name = data.get("broadcast_sender_name", "—")
+        sender_name = data.get("broadcast_sender_name", "Учитель")
         template_key = "broadcast_teacher"
         format_args = lambda u_lang: {"name": sender_name, "text": text}
 
