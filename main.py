@@ -197,6 +197,9 @@ def validate_fio(text: str) -> bool:
 def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarkup:
     rows = [
         [
+            KeyboardButton(text=t("menu_webapp", lang), web_app=WebAppInfo(url=f"{WEBAPP_URL}/student")),
+        ],
+        [
             KeyboardButton(text=t("menu_schedule", lang)),
             KeyboardButton(text=t("menu_profile", lang)),
         ],
