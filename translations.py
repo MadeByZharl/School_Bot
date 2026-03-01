@@ -164,7 +164,6 @@ TEXTS = {
     "profile_card": {
         "ru": (
             "👤 <b>Мой профиль</b>\n\n"
-
             "📛 Имя: <b>{name}</b>\n"
             "🎭 Роль: <b>{role}</b>\n"
             "🏫 Класс: <b>{class_code}</b>\n"
@@ -173,7 +172,6 @@ TEXTS = {
         ),
         "kk": (
             "👤 <b>Менің профилім</b>\n\n"
-            
             "📛 Аты: <b>{name}</b>\n"
             "🎭 Рөлі: <b>{role}</b>\n"
             "🏫 Сынып: <b>{class_code}</b>\n"
