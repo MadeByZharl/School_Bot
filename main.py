@@ -110,7 +110,8 @@ class AntiSpamMiddleware(BaseMiddleware):
                 if isinstance(event, Message):
                     await event.answer(t("spam_warning", lang), parse_mode=ParseMode.HTML)
                 elif isinstance(event, CallbackQuery):
-                    await event.answer(t("spam_warning", lang), show_alert=True)
+                    # Показываем уведомление сверху (toast), а не всплывающим окном
+                    await event.answer(t("spam_warning", lang), show_alert=False)
             return
             
         # Register the action
