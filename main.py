@@ -577,18 +577,9 @@ async def cmd_schedule(message: Message, state: FSMContext):
         show_day = 0
         is_tomorrow = True
     else:
-        # Проверим закончились ли уроки сегодня
-        # Для этого берем правильные шифты для сегодняшнего дня
-        today_shifts = get_shifts(bell_mode, weekday)
-        today_shift_data = today_shifts.get(user["shift"], {})
-        
-        last_end = "00:00"
-        for times in today_shift_data.values():
-            if times["end"] > last_end:
-                last_end = times["end"]
-                
-        if now_time > last_end:
-            # Уроки кончились — показываем следующий учебный день
+        # Уроки по расписанию заканчиваются примерно к 15:00, 
+        # поэтому показываем расписание следующего дня после 15:00
+        if now_time >= "15:00":
             if weekday == 4:      # Пятница → Понедельник
                 show_day = 0
             elif weekday == 5:    # Суббота → Понедельник
