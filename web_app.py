@@ -2,37 +2,8 @@ from fastapi import FastAPI, Request, Form, Response, Depends, HTTPException, Bo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-import db
 import os
-import hmac
-import hashlib
-import urllib.parse
-import json
-
-BOT_TOKEN = "8794322225:AAHPZXDTCUWXueY77Dq0wTEdvyGRROb7Uqw"
-
-def verify_telegram_auth(init_data: str) -> bool:
-    if not init_data:
-        return False
-    try:
-        parsed_data = urllib.parse.parse_qsl(init_data)
-        data_dict = dict(parsed_data)
-        
-        if 'hash' not in data_dict:
-            return False
-            
-        hash_val = data_dict.pop('hash')
-        
-        # Sort keys
-        sorted_keys = sorted(data_dict.keys())
-        data_check_string = "\n".join([f"{k}={data_dict[k]}" for k in sorted_keys])
-        
-        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-        calc_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-        
-        return calc_hash == hash_val
-    except Exception:
-        return False
+import db
 
 app = FastAPI()
 
@@ -190,62 +161,3 @@ async def api_save_schedule(request: Request, payload: dict = Body(...)):
 import os
 if os.path.exists("Scholl-ss-main/dist"):
     app.mount("/", StaticFiles(directory="Scholl-ss-main/dist", html=True), name="frontend")
-if os.path.exists("static_student"):
-    app.mount("/student", StaticFiles(directory="static_student", html=True), name="student_frontend")
-
-# --- Telegram Web App API ---
-
-@app.get("/api/student/me")
-async def api_student_me(twa_init_data: str = Header(None)):
-    if not verify_telegram_auth(twa_init_data):
-        raise HTTPException(status_code=401, detail="Invalid auth")
-    
-    parsed_data = dict(urllib.parse.parse_qsl(twa_init_data))
-    user_str = parsed_data.get('user', "{}")
-    user_data = json.loads(user_str)
-    tg_id = user_data.get('id')
-    
-    if not tg_id:
-        raise HTTPException(status_code=400, detail="No generic user id")
-        
-    user_db = db.get_user(tg_id)
-    if not user_db:
-        raise HTTPException(status_code=404, detail="User not found in DB")
-        
-    return {
-        "id": user_db["user_id"],
-        "role": user_db["role"],
-        "class_code": user_db["class_code"],
-        "name": user_db["full_name"],
-    }
-
-@app.get("/api/student/schedule")
-async def api_student_schedule(twa_init_data: str = Header(None)):
-    if not verify_telegram_auth(twa_init_data):
-        raise HTTPException(status_code=401, detail="Invalid auth")
-        
-    parsed_data = dict(urllib.parse.parse_qsl(twa_init_data))
-    user_str = parsed_data.get('user', "{}")
-    user_data = json.loads(user_str)
-    tg_id = user_data.get('id')
-
-    user_db = db.get_user(tg_id)
-    if not user_db or not user_db.get("class_code"):
-        return []
-
-    matrix = [["" for _ in range(5)] for _ in range(10)]
-    class_code = user_db["class_code"]
-    
-    with db.get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT day_idx, lesson_num, lesson_name FROM lessons WHERE class_code=%s", (class_code,))
-            for row in cursor.fetchall():
-                w = row['day_idx']
-                l = row['lesson_num']
-                if 0 <= w <= 4 and 1 <= l <= 10:
-                    matrix[l-1][w] = row['lesson_name']
-    
-    while len(matrix) > 1 and all(cell == "" for cell in matrix[-1]):
-        matrix.pop()
-        
-    return matrix
