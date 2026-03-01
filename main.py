@@ -572,21 +572,14 @@ async def cmd_schedule(message: Message, state: FSMContext):
     show_day = weekday
     is_tomorrow = False
 
-    # Если сейчас воскресенье → показать понедельник
-    if weekday >= 6:
-        show_day = 0
+    # Уроки по расписанию заканчиваются примерно к 15:00, 
+    # поэтому показываем расписание следующего дня после 15:00
+    if now_time >= "15:00":
+        if weekday >= 4:      # Пятница, Суббота, Воскресенье → Понедельник
+            show_day = 0
+        else:
+            show_day = weekday + 1
         is_tomorrow = True
-    else:
-        # Уроки по расписанию заканчиваются примерно к 15:00, 
-        # поэтому показываем расписание следующего дня после 15:00
-        if now_time >= "15:00":
-            if weekday == 4:      # Пятница → Понедельник
-                show_day = 0
-            elif weekday == 5:    # Суббота → Понедельник
-                show_day = 0
-            else:
-                show_day = weekday + 1
-            is_tomorrow = True
 
     day_names = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
     day_name = day_names[show_day]
