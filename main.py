@@ -200,7 +200,7 @@ def validate_fio(text: str) -> bool:
     return True
 
 
-def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarkup:
+def get_main_menu(lang: str = "ru", role: str = "student", is_admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
         [
             KeyboardButton(text=t("menu_schedule", lang)),
@@ -213,6 +213,9 @@ def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarku
             KeyboardButton(text=t("menu_help", lang)),
         ],
     ]
+    
+    # ВАЖНО: Главный администратор (владелец) всегда получает функционал завуча
+    
     if role == "teacher":
         rows.append([
             KeyboardButton(text=t("menu_gen_student_code", lang)),
@@ -221,7 +224,7 @@ def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarku
         rows.append([
             KeyboardButton(text=t("menu_my_codes", lang)),
         ])
-    elif role == "zavuch":
+    elif role == "zavuch" or is_admin: # Даем права завуча
         rows.append([
             KeyboardButton(text=t("menu_gen_student_code", lang)),
             KeyboardButton(text=t("menu_gen_teacher_code", lang)),
@@ -247,7 +250,9 @@ def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarku
 
 
 def menu_for_user(user: dict) -> ReplyKeyboardMarkup:
-    return get_main_menu(user.get("lang", "ru"), user.get("role", "student"))
+    tg_id = user.get("tg_id") or user.get("user_id")
+    is_admin = (tg_id == ADMIN_ID)
+    return get_main_menu(user.get("lang", "ru"), user.get("role", "student"), is_admin=is_admin)
 
 
 def make_invite_link(code: str) -> str:
