@@ -1389,10 +1389,17 @@ async def schedule_notifier():
                     continue
 
                 for lesson_num, times in shift_lessons.items():
+                    try:
+                        start_dt = datetime.strptime(times["start"], "%H:%M")
+                        pre_lesson_time = (start_dt - timedelta(minutes=2)).strftime("%H:%M")
+                    except Exception:
+                        pre_lesson_time = ""
+
                     is_start = now_time == times["start"]
                     is_end = now_time == times["end"]
+                    is_warning = now_time == pre_lesson_time
 
-                    if not is_start and not is_end:
+                    if not is_start and not is_end and not is_warning:
                         continue
 
                     sent = 0
@@ -1421,6 +1428,11 @@ async def schedule_notifier():
                                 name=lessons_map[lesson_num],
                                 start=times["start"],
                                 end=times["end"],
+                            )
+                        elif is_warning:
+                            text = t("lesson_warning", lang).format(
+                                num=lesson_num,
+                                name=lessons_map[lesson_num],
                             )
                         else:  # is_end
                             text = t("lesson_end", lang).format(num=lesson_num)
