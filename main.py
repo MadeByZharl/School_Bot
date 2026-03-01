@@ -21,11 +21,11 @@ import uvicorn
 from web_app import app as fastapi_app
 
 from db import (
-    init_db, add_user, get_user,
+    init_db, seed_demo_data, add_user, get_user,
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
-    format_class, update_user_lang, get_bot_stats,
+    format_class, update_user_lang, get_bot_stats, get_full_backup,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
@@ -83,6 +83,7 @@ ensure_git_init()
 dp = Dispatcher(storage=storage)
 
 spam_cache = TTLCache(maxsize=10000, ttl=1.5)
+warning_cache = TTLCache(maxsize=10000, ttl=5.0)
 
 class AntiSpamMiddleware(BaseMiddleware):
     async def __call__(
@@ -92,8 +93,22 @@ class AntiSpamMiddleware(BaseMiddleware):
         data: Dict[str, Any],
     ) -> Any:
         user_id = event.from_user.id
+        
+        # If user is in spam cache, they clicked too fast
         if user_id in spam_cache:
+            # If they haven't been warned recently, warn them
+            if user_id not in warning_cache:
+                warning_cache[user_id] = True
+                user = get_user(user_id)
+                lang = user["lang"] if user else "ru"
+                
+                if isinstance(event, Message):
+                    await event.answer(t("spam_warning", lang), parse_mode=ParseMode.HTML)
+                elif isinstance(event, CallbackQuery):
+                    await event.answer(t("spam_warning", lang), show_alert=True)
             return
+            
+        # Register the action
         spam_cache[user_id] = True
         return await handler(event, data)
 
@@ -381,9 +396,45 @@ async def cmd_admin(message: Message, state: FSMContext):
             )
     
     res += f"\n🌐 Web Management: <code>{WEBAPP_URL}</code>"
-    res += f"\n⚙️ System: Online"
+    res += f"\n⚙️ System: Online\n\n💡 <i>Скрытые команды:</i>\n/update — Обновить код\n/backup — Скачать базу данных"
     
     await message.answer(res, parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message, state: FSMContext):
+    """Secret command to export DB."""
+    await state.clear()
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    import json
+    import tempfile
+    from aiogram.types import FSInputFile
+    
+    await message.answer("🔄 Подготовка резервной копии...")
+    try:
+        data = get_full_backup()
+        # Convert datetime objects to string for JSON serialization
+        def default_serializer(obj):
+            if hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            return str(obj)
+            
+        json_str = json.dumps(data, default=default_serializer, ensure_ascii=False, indent=2)
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+            f.write(json_str)
+            temp_path = f.name
+            
+        name = f"schoolbot_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+        db_file = FSInputFile(temp_path, filename=name)
+        await message.answer_document(db_file, caption=f"📦 Резервная копия базы данных ({datetime.now().strftime('%d.%m.%Y %H:%M')})")
+        
+        # Cleanup
+        os.remove(temp_path)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка бэкапа: {e}")
 
 
 @router.callback_query(Registration.choosing_lang, F.data.in_({"lang_ru", "lang_kk"}))
@@ -1396,6 +1447,54 @@ async def schedule_notifier():
             logger.error(f"Scheduler error: {e}")
 
 
+async def auto_backup_task():
+    """Daily automated backup sent to ADMIN_ID."""
+    import json
+    import tempfile
+    from aiogram.types import FSInputFile
+    
+    while True:
+        now = datetime.now(ALMATY_TZ)
+        # Calculate time until next target (e.g., 03:00 AM)
+        target = now.replace(hour=3, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+            
+        delay = (target - now).total_seconds()
+        logger.info(f"Next automated backup scheduled in {delay/3600:.2f} hours")
+        await asyncio.sleep(delay)
+        
+        try:
+            data = get_full_backup()
+            
+            def default_serializer(obj):
+                if hasattr(obj, 'isoformat'):
+                    return obj.isoformat()
+                return str(obj)
+                
+            json_str = json.dumps(data, default=default_serializer, ensure_ascii=False, indent=2)
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+                f.write(json_str)
+                temp_path = f.name
+                
+            name = f"auto_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+            db_file = FSInputFile(temp_path, filename=name)
+            await bot.send_document(
+                chat_id=ADMIN_ID, 
+                document=db_file, 
+                caption=f"📦 Автоматическая резервная копия ({now.strftime('%d.%m.%Y %H:%M')})"
+            )
+            os.remove(temp_path)
+            logger.info("Automated daily backup successful")
+        except Exception as e:
+            logger.error(f"Auto backup failed: {e}")
+            try:
+                await bot.send_message(chat_id=ADMIN_ID, text=f"❌ Ошибка автоматического бэкапа: {e}")
+            except:
+                pass
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # STARTUP
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1405,6 +1504,7 @@ async def on_startup():
     init_db()
     await set_bot_commands(bot)
     asyncio.create_task(schedule_notifier())
+    asyncio.create_task(auto_backup_task())
     logger.info("Bot started, commands set, scheduler running.")
 
 
