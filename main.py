@@ -203,10 +203,12 @@ def get_main_menu(lang: str = "ru", role: str = "student") -> ReplyKeyboardMarku
     rows = [
         [
             KeyboardButton(text=t("menu_schedule", lang)),
-            KeyboardButton(text=t("menu_profile", lang)),
         ],
         [
+            KeyboardButton(text=t("menu_profile", lang)),
             KeyboardButton(text=t("menu_settings", lang)),
+        ],
+        [
             KeyboardButton(text=t("menu_help", lang)),
         ],
     ]
