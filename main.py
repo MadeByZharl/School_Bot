@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
@@ -53,6 +54,9 @@ BOT_TOKEN = "8794322225:AAHPZXDTCUWXueY77Dq0wTEdvyGRROb7Uqw"
 ADMIN_ID = 7903470823
 WEBAPP_URL = "https://your-fastapi-site.com"
 BOT_USERNAME = "SchoolUshtobeBot"
+
+# Timezone definition
+ALMATY_TZ = ZoneInfo("Asia/Almaty")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
