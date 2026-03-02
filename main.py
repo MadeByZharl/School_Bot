@@ -59,7 +59,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7903470823"))
 WEBAPP_URL = "https://your-fastapi-site.com"
-BOT_USERNAME = os.getenv("BOT_USERNAME", "SchoolUshtobeBot")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "OquBot")
 
 # Timezone definition
 ALMATY_TZ = ZoneInfo("Asia/Almaty")
