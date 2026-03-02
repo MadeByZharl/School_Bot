@@ -663,17 +663,62 @@ async def cmd_settings(message: Message, state: FSMContext):
         return
     lang = user["lang"]
     new_lang = "kk" if lang == "ru" else "ru"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    kb_rows = [
         [InlineKeyboardButton(
             text=f"{LANG_LABEL[new_lang]}",
             callback_data=f"set_lang_{new_lang}",
-        )],
-    ])
+        )]
+    ]
+    
+    tg_id = user.get("tg_id") or user.get("user_id")
+    if str(tg_id) == str(ADMIN_ID) or user.get("role") == "zavuch":
+        agg_warn = get_setting("aggressive_warning", "off")
+        agg_warn_text = t("setting_aggressive_warn_on", lang) if agg_warn == "on" else t("setting_aggressive_warn_off", lang)
+        kb_rows.append([InlineKeyboardButton(text=agg_warn_text, callback_data="toggle_agg_warn")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await message.answer(
         t("settings_text", lang),
         parse_mode=ParseMode.HTML,
         reply_markup=kb,
     )
+
+@router.callback_query(F.data == "toggle_agg_warn")
+async def toggle_agg_warn_callback(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    if not user:
+        return
+    tg_id = user.get("tg_id") or user.get("user_id")
+    if str(tg_id) != str(ADMIN_ID) and user.get("role") != "zavuch":
+        await callback.answer("Нет прав", show_alert=True)
+        return
+        
+    current = get_setting("aggressive_warning", "off")
+    new_val = "on" if current == "off" else "off"
+    set_setting("aggressive_warning", new_val)
+    
+    await callback.answer(t("aggressive_warn_toggled", user["lang"]))
+    
+    lang = user["lang"]
+    new_lang = "kk" if lang == "ru" else "ru"
+    kb_rows = [
+        [InlineKeyboardButton(
+            text=f"{LANG_LABEL[new_lang]}",
+            callback_data=f"set_lang_{new_lang}",
+        )]
+    ]
+    agg_warn_text = t("setting_aggressive_warn_on", lang) if new_val == "on" else t("setting_aggressive_warn_off", lang)
+    kb_rows.append([InlineKeyboardButton(text=agg_warn_text, callback_data="toggle_agg_warn")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    
+    try:
+        await callback.message.edit_text(
+            t("settings_text", lang),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb,
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.in_({"set_lang_ru", "set_lang_kk"}))
@@ -1445,10 +1490,17 @@ async def schedule_notifier():
                                 end=times["end"],
                             )
                         elif is_warning:
-                            text = t("lesson_warning", lang).format(
-                                num=lesson_num,
-                                name=lessons_map[lesson_num],
-                            )
+                            agg_warn = get_setting("aggressive_warning", "off")
+                            if agg_warn == "on":
+                                text = t("lesson_warning_aggressive", lang).format(
+                                    num=lesson_num,
+                                    name=lessons_map[lesson_num],
+                                )
+                            else:
+                                text = t("lesson_warning", lang).format(
+                                    num=lesson_num,
+                                    name=lessons_map[lesson_num],
+                                )
                         else:  # is_end
                             text = t("lesson_end", lang).format(num=lesson_num)
 
