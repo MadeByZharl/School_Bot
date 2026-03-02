@@ -27,8 +27,7 @@ from db import (
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
-    format_class, update_user_lang, get_bot_stats, get_full_backup,
-    add_homework, get_homework
+    format_class, update_user_lang, get_bot_stats, get_full_backup
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
