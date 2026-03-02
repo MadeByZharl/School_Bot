@@ -123,21 +123,6 @@ ALL_MENU_BUTTONS = frozenset().union(*(BTN(k) for k in [
 
 router = Router()
 
-# ================================
-# FSM CATCH-ALL FOR MAIN MENU
-# ================================
-@router.message(F.text.in_(ALL_MENU_BUTTONS))
-async def menu_catch_all(message: Message, state: FSMContext):
-    """
-    Globally intercepts messages that are known main-menu buttons.
-    We clear the state so they can work regardless of current FSM state.
-    """
-    current_state = await state.get_state()
-    if current_state is not None:
-        await state.clear()
-        # Answer with temporary prompt before letting handlers catch it
-        # Actually in Aiogram 3 we can't easily re-route like a middleware without custom magic, 
-        # so we will just clear the state here. We'll need to remove `StateFilter(None)` from menu buttons.
 
 spam_cache = TTLCache(maxsize=10000, ttl=1.5)
 warning_cache = TTLCache(maxsize=10000, ttl=5.0)
@@ -1293,7 +1278,7 @@ async def broadcast_all_confirm(message: Message, state: FSMContext):
     )
 
 
-@router.message(F.text.in_(BTN("menu_send_class")), StateFilter(None))
+@router.message(F.text.in_(BTN("menu_send_class")))
 async def btn_send_class_teacher(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user or user["role"] != "teacher":
