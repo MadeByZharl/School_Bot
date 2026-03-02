@@ -28,6 +28,7 @@ from db import (
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
     format_class, update_user_lang, get_bot_stats, get_full_backup,
+    add_homework, get_homework
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
@@ -177,6 +178,10 @@ class Broadcast(StatesGroup):
 class GenCode(StatesGroup):
     entering_class_code = State()
     choosing_shift = State()
+
+
+
+
 
 
 def t(key: str, lang: str = "ru") -> str:
@@ -1411,6 +1416,10 @@ async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
     await state.clear()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

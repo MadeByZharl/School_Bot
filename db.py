@@ -1,6 +1,5 @@
 import pymysql
 import pymysql.cursors
-import string
 import random
 from datetime import datetime, timedelta
 import os
@@ -77,18 +76,6 @@ def init_db():
             `value` VARCHAR(255) NOT NULL
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         """,
-        """
-        CREATE TABLE IF NOT EXISTS homework (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            class_code VARCHAR(50) NOT NULL,
-            date DATE NOT NULL,
-            subject VARCHAR(255) NOT NULL,
-            text TEXT NOT NULL,
-            teacher_name VARCHAR(255) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (class_code) REFERENCES classes(class_code)
-        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-        """
     ]
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -191,10 +178,16 @@ def use_invite_code(code: str, tg_id: int) -> dict | None:
             if not row:
                 return None
             
-            cursor.execute(
-                "UPDATE invite_codes SET use_count = use_count + 1 WHERE code = %s",
-                (code,),
-            )
+            if not row["reusable"]:
+                cursor.execute(
+                    "UPDATE invite_codes SET use_count = use_count + 1, is_active = 0 WHERE code = %s",
+                    (code,),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE invite_codes SET use_count = use_count + 1 WHERE code = %s",
+                    (code,),
+                )
             return row
 
 
@@ -398,6 +391,8 @@ def update_user_lang(tg_id: int, lang: str):
 def format_class(class_code: str) -> str:
     if not class_code:
         return "—"
+    
+    # Check if the class is already saved with a space (e.g. "8 А" instead of "8А")
     match = re.match(r"^(\d+)\s*([A-Za-zА-Яа-яЁёӘәІіҢңҒғҮүҰұҚқӨөНн]+)$", str(class_code).strip())
     if match:
         return f'{match.group(1)} "{match.group(2).upper()}"'
@@ -420,7 +415,7 @@ def get_bot_stats():
                 roles[r["role"]] = r["count"]
 
             # By class
-            cursor.execute("SELECT class_code, COUNT(*) as count FROM users WHERE role = 'student' GROUP BY class_code")
+            cursor.execute("SELECT class_code, COUNT(*) as count FROM users WHERE role = 'student' AND class_code IS NOT NULL GROUP BY class_code")
             classes = cursor.fetchall()
 
             return {
@@ -434,47 +429,9 @@ def get_full_backup() -> dict:
     backup = {}
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            tables = ["users", "classes", "lessons", "invite_codes", "settings", "homework"]
+            tables = ["users", "classes", "lessons", "invite_codes", "settings"]
             for table in tables:
                 cursor.execute(f"SELECT * FROM {table}")
                 backup[table] = cursor.fetchall()
     return backup
 
-def add_homework(class_code: str, hw_date: str, subject: str, text: str, teacher_name: str) -> bool:
-    """Adds a homework entry. The date is a string YYYY-MM-DD."""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            try:
-                # Upsert approach: if homework exists for this class+date+subject, update it.
-                cursor.execute(
-                    """
-                    INSERT INTO homework (class_code, date, subject, text, teacher_name)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE 
-                        text = VALUES(text), teacher_name = VALUES(teacher_name), created_at = CURRENT_TIMESTAMP
-                    """,
-                    (class_code, hw_date, subject, text, teacher_name)
-                )
-                return True
-            except pymysql.MySQLError as e:
-                print(f"Add homework error: {e}")
-                return False
-
-def get_homework(class_code: str, hw_date: str) -> list:
-    """Gets all homework for a specific class and date (YYYY-MM-DD)."""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            try:
-                cursor.execute(
-                    """
-                    SELECT subject, text, teacher_name 
-                    FROM homework 
-                    WHERE class_code = %s AND date = %s
-                    ORDER BY id ASC
-                    """,
-                    (class_code, hw_date)
-                )
-                return cursor.fetchall()
-            except pymysql.MySQLError as e:
-                print(f"Get homework error: {e}")
-                return []
