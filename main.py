@@ -51,10 +51,15 @@ async def send_to_user(bot_instance: Bot, user: dict, text: str, parse_mode=Pars
             logger.error(f"TG Broadcast Error {user['tg_id']}: {e}")
             raise e
 
-BOT_TOKEN = "8794322225:AAHPZXDTCUWXueY77Dq0wTEdvyGRROb7Uqw"
-ADMIN_ID = 7903470823
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "7903470823"))
 WEBAPP_URL = "https://your-fastapi-site.com"
-BOT_USERNAME = "SchoolUshtobeBot"
+BOT_USERNAME = os.getenv("BOT_USERNAME", "SchoolUshtobeBot")
 
 # Timezone definition
 ALMATY_TZ = ZoneInfo("Asia/Almaty")
@@ -88,6 +93,53 @@ def ensure_git_init():
 ensure_git_init()
 dp = Dispatcher(storage=storage)
 
+BAD_WORDS = ["блять", "сука", "хуй", "пизд", "ебан", "нахуй", "залуп", "ёб", "дерьм"]
+
+ROLE_MAP = {
+    "student": "role_student",
+    "teacher": "role_teacher",
+    "zavuch": "role_zavuch",
+}
+
+# УПРАВЛЕНИЕ РЕЖИМОМ ЗВОНКОВ
+BELL_MODE_LABEL = {
+    "standard": "bell_standard",
+    "short": "bell_short",
+    "custom": "bell_custom"
+}
+
+LANG_LABEL = {"ru": "🇷🇺 Русский", "kk": "🇰🇿 Қазақша"}
+
+DAY_NAMES_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+DAY_NAMES_KK = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
+
+BTN = lambda key: {TEXTS[key]["ru"], TEXTS[key]["kk"]}
+
+ALL_MENU_BUTTONS = frozenset().union(*(BTN(k) for k in [
+    "menu_schedule", "menu_profile", "menu_settings", "menu_help",
+    "menu_gen_student_code", "menu_gen_teacher_code", "menu_send_class",
+    "menu_send_all", "menu_my_codes", "menu_bell_mode", "menu_send_class_zavuch",
+    "menu_edit_schedule", "menu_stats"
+]))
+
+router = Router()
+
+# ================================
+# FSM CATCH-ALL FOR MAIN MENU
+# ================================
+@router.message(F.text.in_(ALL_MENU_BUTTONS))
+async def menu_catch_all(message: Message, state: FSMContext):
+    """
+    Globally intercepts messages that are known main-menu buttons.
+    We clear the state so they can work regardless of current FSM state.
+    """
+    current_state = await state.get_state()
+    if current_state is not None:
+        await state.clear()
+        # Answer with temporary prompt before letting handlers catch it
+        # Actually in Aiogram 3 we can't easily re-route like a middleware without custom magic, 
+        # so we will just clear the state here. We'll need to remove `StateFilter(None)` from menu buttons.
+
 spam_cache = TTLCache(maxsize=10000, ttl=1.5)
 warning_cache = TTLCache(maxsize=10000, ttl=5.0)
 
@@ -98,6 +150,10 @@ class AntiSpamMiddleware(BaseMiddleware):
         event: Message | CallbackQuery,
         data: Dict[str, Any],
     ) -> Any:
+        # Ignore anti-spam for main menu reply buttons to prevent ghosting
+        if isinstance(event, Message) and event.text and event.text in ALL_MENU_BUTTONS:
+            return await handler(event, data)
+            
         user_id = event.from_user.id
         
         # If user is in spam cache, they clicked too fast
@@ -121,40 +177,7 @@ class AntiSpamMiddleware(BaseMiddleware):
 
 dp.message.middleware(AntiSpamMiddleware())
 dp.callback_query.middleware(AntiSpamMiddleware())
-
-router = Router()
 dp.include_router(router)
-
-BAD_WORDS = ["блять", "сука", "хуй", "пизд", "ебан", "нахуй", "залуп", "ёб", "дерьм"]
-
-ROLE_MAP = {
-    "student": "role_student",
-    "teacher": "role_teacher",
-    "zavuch": "role_zavuch",
-}
-
-# УПРАВЛЕНИЕ РЕЖИМОМ ЗВОНКОВ
-BELL_MODE_LABEL = {
-    "standard": "bell_standard",
-    "short": "bell_short",
-    "custom": "bell_custom"
-}
-
-LANG_LABEL = {"ru": "🇷🇺 Русский", "kk": "🇰🇿 Қазақша"}
-
-DAY_NAMES_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-DAY_NAMES_KK = ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
-
-BTN = lambda key: {TEXTS[key]["ru"], TEXTS[key]["kk"]}
-
-ALL_MENU_BUTTONS = (
-    BTN("menu_schedule") | BTN("menu_profile") |
-    BTN("menu_settings") | BTN("menu_help") |
-    BTN("menu_gen_student_code") | BTN("menu_gen_teacher_code") |
-    BTN("menu_send_class") | BTN("menu_send_all") | BTN("menu_my_codes") |
-    BTN("menu_bell_mode") | BTN("menu_send_class_zavuch") | BTN("menu_edit_schedule") |
-    BTN("menu_stats")
-)
 
 
 class EditScheduleInline(StatesGroup):
@@ -796,7 +819,7 @@ async def btn_bell_mode(message: Message, state: FSMContext):
 @router.callback_query(F.data.in_({"bell_set_standard", "bell_set_short", "bell_set_custom"}))
 async def process_bell_mode(callback: CallbackQuery):
     user = get_user(callback.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         await callback.answer()
         return
     lang = user["lang"]
@@ -839,20 +862,7 @@ async def btn_stats(message: Message, state: FSMContext):
             )
             
     await message.answer(res, parse_mode=ParseMode.HTML)
-    # Уведомить всех пользователей
-    all_users = get_all_users()
-    sent = 0
-    for u in all_users:
-        u_lang = u.get("lang", "ru")
-        u_mode_label = t(BELL_MODE_LABEL[new_mode], u_lang)
-        text = t("bell_mode_notify", u_lang).format(mode=u_mode_label)
-        try:
-            await send_to_user(bot, u, text, parse_mode=ParseMode.HTML)
-            sent += 1
-            if sent % 25 == 0:
-                await asyncio.sleep(1)
-        except Exception:
-            pass
+
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -890,6 +900,9 @@ async def btn_edit_schedule_inline(message: Message, state: FSMContext):
 
 @router.message(StateFilter(EditScheduleInline.choosing_class))
 async def edit_schedule_inline_select_class(message: Message, state: FSMContext):
+    if not message.text:
+        return
+        
     user = get_user(message.from_user.id)
     lang = user["lang"] if user else "ru"
     if message.text.lower() in ("отмена", "cancel", "болдырмау"):
@@ -908,6 +921,7 @@ async def edit_schedule_inline_select_class(message: Message, state: FSMContext)
         [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
         [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
         [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
+        [InlineKeyboardButton(text="❌ Выйти", callback_data="es_cancel")]
     ])
     
     await message.answer("Выберите день недели:", reply_markup=kb)
@@ -938,6 +952,7 @@ async def edit_schedule_inline_select_day(callback: CallbackQuery, state: FSMCon
         kb_rows.append([InlineKeyboardButton(text=btn_text, callback_data=f"es_les_{i}")])
         
     kb_rows.append([InlineKeyboardButton(text="🔙 К выбору дня", callback_data="es_back_day")])
+    kb_rows.append([InlineKeyboardButton(text="❌ Выйти", callback_data="es_cancel")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     
     await callback.message.edit_text(f"📆 <b>{days[day_idx]}</b> ({class_code})\nВыберите урок для изменения:", reply_markup=kb, parse_mode=ParseMode.HTML)
@@ -952,8 +967,17 @@ async def edit_schedule_inline_back_day(callback: CallbackQuery, state: FSMConte
         [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
         [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
         [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
+        [InlineKeyboardButton(text="❌ Выйти", callback_data="es_cancel")],
     ])
     await callback.message.edit_text("Выберите день недели:", reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data == "es_cancel")
+async def edit_schedule_inline_cancel(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    await state.clear()
+    await callback.message.edit_text("❌ Редактирование отменено.", reply_markup=None)
+    await callback.message.answer("Главное меню:", reply_markup=menu_for_user(user))
     await callback.answer()
 
 @router.callback_query(F.data.startswith("es_les_"))
@@ -1095,7 +1119,7 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
 async def btn_gen_teacher_code(message: Message, state: FSMContext):
     await state.clear()
     user = get_user(message.from_user.id)
-    if not user or user["role"] != "zavuch":
+    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
