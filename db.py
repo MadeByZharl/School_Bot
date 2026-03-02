@@ -1,5 +1,6 @@
 import pymysql
 import pymysql.cursors
+import string
 import random
 from datetime import datetime, timedelta
 import os
