@@ -892,13 +892,14 @@ async def btn_edit_schedule_inline(callback: CallbackQuery, state: FSMContext):
     from db import get_all_classes
     classes = get_all_classes()
     
-    keyboard = []
+    kb_rows = []
     row = []
     for c in classes:
-        row.append(KeyboardButton(text=c))
+        row.append(InlineKeyboardButton(text=c, callback_data=c))
         if len(row) == 3:
-            keyboard.append(row)
+            kb_rows.append(row)
             row = []
+    if row:
         kb_rows.append(row)
     
     kb_rows.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")])
