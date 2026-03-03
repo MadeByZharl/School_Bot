@@ -843,10 +843,10 @@ async def process_bell_mode(callback: CallbackQuery):
 @router.callback_query(F.data == "main_menu_stats")
 async def btn_stats(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    user = get_user(callback.from_user.id)
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
 
     lang = user["lang"]
@@ -868,7 +868,8 @@ async def btn_stats(callback: CallbackQuery, state: FSMContext):
                 count=c["count"]
             )
             
-    await message.answer(res, parse_mode=ParseMode.HTML)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu_profile")]])
+    await callback.message.edit_text(res, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 
