@@ -124,8 +124,8 @@ ALL_MENU_BUTTONS = frozenset().union(*(BTN(k) for k in [
 router = Router()
 
 
-spam_cache = TTLCache(maxsize=10000, ttl=1.5)
-warning_cache = TTLCache(maxsize=10000, ttl=5.0)
+spam_cache = TTLCache(maxsize=10000, ttl=0.3)
+warning_cache = TTLCache(maxsize=10000, ttl=2.0)
 
 class AntiSpamMiddleware(BaseMiddleware):
     async def __call__(
