@@ -1552,6 +1552,29 @@ async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
 # CATCH-ALL: кнопка меню во время FSM → отмена
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+@router.message(F.text.in_(ALL_MENU_BUTTONS))
+async def legacy_menu_fallback(message: Message, state: FSMContext):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    if not user:
+        await message.answer("Введите /start", reply_markup=ReplyKeyboardRemove())
+        return
+        
+    lang = user.get("lang", "ru")
+    await message.answer(
+        "🔄 Интерфейс обновлён! Убираю старую клавиатуру..." if lang == "ru" else "🔄 Интерфейс жаңартылды! Ескі пернетақтаны алып тастау...", 
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    text = "🌟 <b>Главное меню</b> 🌟" if lang == "ru" else "🌟 <b>Басты мәзір</b> 🌟"
+    msg2 = await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
+    await state.update_data(main_msg_id=msg2.message_id)
+
+@router.message()
+async def any_other_message(message: Message):
+    # Ignore unhandled text to prevent console spam
+    pass
+
 
 @router.callback_query()
 async def catch_all_callbacks(callback: CallbackQuery):
