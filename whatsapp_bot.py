@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from whatsapp_api_client_python import API
 from cachetools import TTLCache
 
-wa_spam_cache = TTLCache(maxsize=10000, ttl=1.5)
+wa_spam_cache = TTLCache(maxsize=10000, ttl=0.4)
 
 # Подключаем общие модуцы
 import db
@@ -82,9 +82,7 @@ def handle_schedule(wa_id: int, user: dict):
                 last_end = times["end"]
                 
         if now_time > last_end:
-            if weekday == 4: show_day = 0
-            elif weekday == 5: show_day = 0
-            else: show_day = weekday + 1
+            show_day = (weekday + 1) % 6
             is_tomorrow = True
 
     day_names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"] if lang == "ru" else ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
@@ -92,7 +90,7 @@ def handle_schedule(wa_id: int, user: dict):
     lessons = db.get_lessons(user.get("class_code", ""), show_day)
     
     shifts = get_shifts(bell_mode, show_day)
-    shift_data = shifts.get(user["shift"], {})
+    shift_data = shifts.get(user.get("shift", 1), {})
     if not lessons:
         send_msg(wa_id, t("no_lessons", lang))
         return
@@ -127,7 +125,8 @@ def handle_weekly_schedule(wa_id: int, user: dict):
     bell_mode = db.get_setting("bell_mode", "standard")
     
     day_names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"] if lang == "ru" else ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі"]
-    all_lines = ["📅 *Расписание на неделю* / *Апталық кесте*\n"]
+    header_text = "📅 *Расписание на неделю*" if lang == "ru" else "📅 *Апталық кесте*"
+    all_lines = [header_text + "\n"]
     has_any_lessons = False
     now_time = get_now_almaty()
     weekday = get_weekday_almaty()
@@ -138,7 +137,7 @@ def handle_weekly_schedule(wa_id: int, user: dict):
             
         has_any_lessons = True
         shifts = get_shifts(bell_mode, day_idx)
-        shift_data = shifts.get(user["shift"], {})
+        shift_data = shifts.get(user.get("shift", 1), {})
         
         all_lines.append(f"\n🔹 *{day_names[day_idx]}*")
         for ls in lessons:
@@ -213,7 +212,8 @@ def process_message(wa_id: int, text: str):
             
             # Very basic validation
             if len(name) < 2:
-                send_msg(wa_id, "❌ " + t("registration_done", lang).replace("Ура!", "Ошибка:")) # Fallback error
+                err_msg = "❌ Имя слишком короткое. Попробуйте еще раз:" if lang == "ru" else "❌ Атыңыз тым қысқа. Қайтадан байқап көріңіз:"
+                send_msg(wa_id, err_msg)
                 return
                 
             db.add_user(wa_id, name, role, lang, class_code, shift, "whatsapp")
@@ -251,10 +251,14 @@ def process_message(wa_id: int, text: str):
             recipients = db.get_users_by_class(user["class_code"])
             template = TEXTS["broadcast_teacher"][lang]
             msg_text = template.format(name=user["full_name"], text=text_to_send)
-        else:
+        elif user["role"] == "zavuch":
             recipients = db.get_all_users()
             template = TEXTS["broadcast_admin"][lang]
             msg_text = template.format(text=text_to_send)
+        else:
+            send_msg(wa_id, "❌ Ошибка прав доступа.")
+            del FSM_DATA[wa_id]
+            return
             
         count = 0
         errors = 0
@@ -269,13 +273,15 @@ def process_message(wa_id: int, text: str):
                     errors += 1
             else:
                 try:
-                    requests.post(
+                    r = requests.post(
                         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                         json={"chat_id": u["tg_id"], "text": msg_text, "parse_mode": "HTML"},
                         timeout=5
                     )
+                    r.raise_for_status()
                     count += 1
-                except Exception:
+                except Exception as e:
+                    print(f"Failed to broadcast TG {u['tg_id']}: {e}")
                     errors += 1
         
         res_msg = t("broadcast_done", lang).format(count=count)
@@ -353,6 +359,10 @@ def process_message(wa_id: int, text: str):
         lessons_text = text.strip().split("\n")
         lessons = [l.strip() for l in lessons_text if l.strip()]
         
+        if len(lessons) > 15:
+            send_msg(wa_id, "❌ Ошибка: Максимум 15 уроков." if lang == "ru" else "❌ Қате: Ең көбі 15 сабақ.")
+            return
+
         db.delete_lessons(class_code, day_idx)
         formatted_schedule = ""
         for i, lesson in enumerate(lessons, 1):
@@ -375,13 +385,14 @@ def process_message(wa_id: int, text: str):
                     pass
             else:
                 try:
-                    requests.post(
+                    r = requests.post(
                         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                         json={"chat_id": u["tg_id"], "text": txt, "parse_mode": "HTML"},
                         timeout=5
                     )
-                except Exception:
-                    pass
+                    r.raise_for_status()
+                except Exception as e:
+                    print(f"Failed to notify TG {u['tg_id']}: {e}")
         return
 
     if text_ci in ("1", "расписание", "1. расписание", "кесте"):
@@ -398,6 +409,7 @@ def process_message(wa_id: int, text: str):
             lang="Русский" if lang == "ru" else "Қазақша"
         )
         send_msg(wa_id, msg_text)
+        send_msg(wa_id, get_main_menu_text(lang, user["role"]))
     elif text_ci in ("3", "настройки", "параметрлер"):
         # Simple toggle language for now
         new_lang = "kk" if lang == "ru" else "ru"
@@ -436,7 +448,10 @@ def process_message(wa_id: int, text: str):
         FSM_DATA[wa_id] = {"state": "edit_schedule_class"}
         send_msg(wa_id, t("edit_schedule_ask_class", lang))
     else:
-        # Default menu: send schedule then menu
+        # Unknown command fallback
+        msg_ru = "❌ Неизвестная команда. Пожалуйста, выберите цифру из меню."
+        msg_kk = "❌ Белгісіз бұйрық. Мәзірден цифрды таңдаңыз."
+        send_msg(wa_id, msg_ru if lang == "ru" else msg_kk)
         handle_schedule(wa_id, user)
         send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
 
@@ -456,12 +471,16 @@ def webhook_handler(typeWebhook, body):
             wa_id = int(wa_id_str)
             
             text = ""
+            if 'typeMessage' not in messageData:
+                return
             if messageData['typeMessage'] == 'textMessage':
                 text = messageData['textMessageData']['textMessage']
             elif messageData['typeMessage'] == 'extendedTextMessage':
                 text = messageData['extendedTextMessageData']['text']
                 
-            if text:
+            if not text:
+                send_msg(wa_id, "Пожалуйста, отправьте текстовое сообщение.\nМәтіндік хабарлама жіберіңіз.")
+                return
                 if wa_id in wa_spam_cache:
                     print(f"SPAM BLOCK: WA {wa_id} sent message too fast.")
                     return
