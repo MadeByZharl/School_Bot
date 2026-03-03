@@ -480,14 +480,11 @@ async def process_lang(callback: CallbackQuery, state: FSMContext):
                 class_code=code_data["class_code"],
                 shift=code_data["shift"],
             )
-            await callback.message.edit_text(
-                t(f"code_accepted_{role}", lang).format(class_code=format_class(code_data.get("class_code", ""))),
-                parse_mode=ParseMode.HTML,
-            )
-            if role == "student":
-                await callback.message.answer(t("ask_name_student", lang), parse_mode=ParseMode.HTML)
-            else:
-                await callback.message.answer(t("ask_name_teacher", lang), parse_mode=ParseMode.HTML)
+            text_msg = t(f"code_accepted_{role}", lang).format(class_code=format_class(code_data.get("class_code", "")))
+            text_msg += "\n\n"
+            text_msg += t("ask_name_student", lang) if role == "student" else t("ask_name_teacher", lang)
+            
+            await callback.message.edit_text(text_msg, parse_mode=ParseMode.HTML)
             await state.set_state(Registration.entering_name)
             await callback.answer()
             return
@@ -528,14 +525,11 @@ async def process_invite_code(message: Message, state: FSMContext):
         class_code=code_data["class_code"],
         shift=code_data["shift"],
     )
-    await message.answer(
-        t(f"code_accepted_{role}", lang).format(class_code=format_class(code_data.get("class_code", ""))),
-        parse_mode=ParseMode.HTML,
-    )
-    if role == "student":
-        await message.answer(t("ask_name_student", lang), parse_mode=ParseMode.HTML)
-    else:
-        await message.answer(t("ask_name_teacher", lang), parse_mode=ParseMode.HTML)
+    text_msg = t(f"code_accepted_{role}", lang).format(class_code=format_class(code_data.get("class_code", "")))
+    text_msg += "\n\n"
+    text_msg += t("ask_name_student", lang) if role == "student" else t("ask_name_teacher", lang)
+    
+    await message.answer(text_msg, parse_mode=ParseMode.HTML)
     await state.set_state(Registration.entering_name)
 
 
@@ -898,17 +892,8 @@ async def edit_schedule_inline_select_class(message: Message, state: FSMContext)
     await state.update_data(edit_class=class_code)
     
     # Важно: убираем Reply-клавиатуру, чтобы оставить только Inline
-    await message.answer(f"Выбран класс: <b>{class_code}</b>", reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.HTML)
-    
-    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
-        [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
-        [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
-        [InlineKeyboardButton(text="❌ Выйти", callback_data="es_cancel")]
-    ])
-    
-    await message.answer("Выберите день недели:", reply_markup=kb)
+    msg_text = f"Выбран класс: <b>{class_code}</b>\n\nВыберите день недели:"
+    await message.answer(msg_text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
 @router.callback_query(F.data.startswith("es_day_"))
 async def edit_schedule_inline_select_day(callback: CallbackQuery, state: FSMContext):
