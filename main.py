@@ -644,7 +644,15 @@ async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
             lines.append(f"{connector} {num}. <b>{lesson_name}</b>  ({start}–{end})")
     mode_label = t(BELL_MODE_LABEL.get(bell_mode, "bell_standard"), lang)
     lines.append(f"\n<i>{mode_label}</i>")
-    text = t(header_key, lang).format(lessons="\n".join(lines))
+    
+    header_key = "schedule_tomorrow" if is_tomorrow else "schedule_today"
+    # Fallback keys since old ones might not exist directly
+    header_text_ru = "📅 Расписание на завтра:\n\n{lessons}" if is_tomorrow else "📅 Расписание на сегодня:\n\n{lessons}"
+    header_text_kk = "📅 Ертеңгі сабақ кестесі:\n\n{lessons}" if is_tomorrow else "📅 Бүгінгі сабақ кестесі:\n\n{lessons}"
+    
+    text_template = header_text_ru if lang == "ru" else header_text_kk
+    text = text_template.format(lessons="\n".join(lines))
+    
     await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
 
 
