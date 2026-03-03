@@ -137,6 +137,9 @@ class AntiSpamMiddleware(BaseMiddleware):
         # Ignore anti-spam for main menu reply buttons to prevent ghosting
         if isinstance(event, Message) and event.text and event.text in ALL_MENU_BUTTONS:
             return await handler(event, data)
+        # Игнорируем анти-спам для инлайн кнопок главного меню
+        if isinstance(event, CallbackQuery) and event.data and event.data.startswith("main_menu_"):
+            return await handler(event, data)
             
         user_id = event.from_user.id
         
@@ -1550,7 +1553,13 @@ async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-# Redundant handler removed to fix 2-click bug
+@router.callback_query()
+async def catch_all_callbacks(callback: CallbackQuery):
+    """Fallback handler for old or unhandled inline buttons to stop loading spinners."""
+    try:
+        await callback.answer("Эта кнопка больше не работает.", show_alert=False)
+    except Exception:
+        pass
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
