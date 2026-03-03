@@ -14,17 +14,9 @@ from translations import TEXTS, LESSON_TRANSLATIONS
 
 load_dotenv()
 
-ID_INSTANCE = os.getenv("ID_INSTANCE", "7103531121")
-API_TOKEN_INSTANCE = os.getenv("API_TOKEN_INSTANCE", "5261f6ef2e8b4dd98d010a3f039ff95f0b2a08a7cadb46b2a7")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8794322225:AAHPZXDTCUWXueY77Dq0wTEdvyGRROb7Uqw")
-import db
-from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
-from translations import TEXTS, LESSON_TRANSLATIONS
-
-load_dotenv()
-
-ID_INSTANCE = os.getenv("ID_INSTANCE", "7103531121")
-API_TOKEN_INSTANCE = os.getenv("API_TOKEN_INSTANCE", "5261f6ef2e8b4dd98d010a3f039ff95f0b2a08a7cadb46b2a7")
+ID_INSTANCE = os.getenv("ID_INSTANCE")
+API_TOKEN_INSTANCE = os.getenv("API_TOKEN_INSTANCE")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 greenAPI = API.GreenApi(ID_INSTANCE, API_TOKEN_INSTANCE)
 
@@ -418,7 +410,7 @@ def process_message(wa_id: int, text: str):
         handle_weekly_schedule(wa_id, user)
         send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
     elif text_ci.startswith("6") and user["role"] in ("teacher", "zavuch"):
-        new_code = db.create_invite_code("student", user.get("class_code"), user.get("shift", 1), wa_id)
+        new_code = db.create_invite_code("student", user.get("class_code"), user.get("shift", 1), wa_id, reusable=True)
         msg_ru = f"✅ Код для ученика создан:\n\n`{new_code}`\n\n_Передайте этот код ученику._"
         msg_kk = f"✅ Оқушы коды жасалды:\n\n`{new_code}`\n\n_Бұл кодты оқушыға беріңіз._"
         send_msg(wa_id, msg_ru if lang == "ru" else msg_kk)
