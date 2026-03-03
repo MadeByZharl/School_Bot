@@ -212,59 +212,53 @@ def validate_fio(text: str) -> bool:
     return True
 
 
-def get_main_menu(lang: str = "ru", role: str = "student", is_admin: bool = False) -> ReplyKeyboardMarkup:
+def get_main_menu_inline(lang: str = "ru", role: str = "student", is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
-            KeyboardButton(text=t("menu_schedule", lang)),
+            InlineKeyboardButton(text=t("menu_schedule", lang), callback_data="main_menu_schedule"),
         ],
         [
-            KeyboardButton(text=t("menu_profile", lang)),
-            KeyboardButton(text=t("menu_settings", lang)),
+            InlineKeyboardButton(text=t("menu_profile", lang), callback_data="main_menu_profile"),
+            InlineKeyboardButton(text=t("menu_settings", lang), callback_data="main_menu_settings"),
         ],
         [
-            KeyboardButton(text=t("menu_help", lang)),
+            InlineKeyboardButton(text=t("menu_help", lang), callback_data="main_menu_help"),
         ],
     ]
     
-    # ВАЖНО: Главный администратор (владелец) всегда получает функционал завуча
-    
     if role == "teacher":
         rows.append([
-            KeyboardButton(text=t("menu_gen_student_code", lang)),
-            KeyboardButton(text=t("menu_send_class", lang)),
+            InlineKeyboardButton(text=t("menu_gen_student_code", lang), callback_data="main_menu_gen_student_code"),
+            InlineKeyboardButton(text=t("menu_send_class", lang), callback_data="main_menu_send_class"),
         ])
         rows.append([
-            KeyboardButton(text=t("menu_my_codes", lang)),
+            InlineKeyboardButton(text=t("menu_my_codes", lang), callback_data="main_menu_my_codes"),
         ])
-    elif role == "zavuch" or is_admin: # Даем права завуча
+    elif role == "zavuch" or is_admin: 
         rows.append([
-            KeyboardButton(text=t("menu_gen_student_code", lang)),
-            KeyboardButton(text=t("menu_gen_teacher_code", lang)),
-        ])
-        rows.append([
-            KeyboardButton(text=t("menu_send_all", lang)),
-            KeyboardButton(text=t("menu_send_class_zavuch", lang)),
+            InlineKeyboardButton(text=t("menu_gen_student_code", lang), callback_data="main_menu_gen_student_code"),
+            InlineKeyboardButton(text=t("menu_gen_teacher_code", lang), callback_data="main_menu_gen_teacher_code"),
         ])
         rows.append([
-            KeyboardButton(text=t("menu_my_codes", lang)),
-            KeyboardButton(text=t("menu_bell_mode", lang)),
+            InlineKeyboardButton(text=t("menu_send_all", lang), callback_data="main_menu_send_all"),
+            InlineKeyboardButton(text=t("menu_send_class_zavuch", lang), callback_data="main_menu_send_class_zavuch"),
         ])
         rows.append([
-            KeyboardButton(text=t("menu_edit_schedule", lang)),
-            KeyboardButton(text=t("menu_stats", lang)),
+            InlineKeyboardButton(text=t("menu_my_codes", lang), callback_data="main_menu_my_codes"),
+            InlineKeyboardButton(text=t("menu_bell_mode", lang), callback_data="main_menu_bell_mode"),
+        ])
+        rows.append([
+            InlineKeyboardButton(text=t("menu_edit_schedule", lang), callback_data="main_menu_edit_schedule"),
+            InlineKeyboardButton(text=t("menu_stats", lang), callback_data="main_menu_stats"),
         ])
 
-    return ReplyKeyboardMarkup(
-        keyboard=rows,
-        resize_keyboard=True,
-        is_persistent=True,
-    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def menu_for_user(user: dict) -> ReplyKeyboardMarkup:
+def menu_for_user_inline(user: dict) -> InlineKeyboardMarkup:
     tg_id = user.get("tg_id") or user.get("user_id")
     is_admin = (tg_id == ADMIN_ID)
-    return get_main_menu(user.get("lang", "ru"), user.get("role", "student"), is_admin=is_admin)
+    return get_main_menu_inline(user.get("lang", "ru"), user.get("role", "student"), is_admin=is_admin)
 
 
 def make_invite_link(code: str) -> str:
@@ -272,8 +266,14 @@ def make_invite_link(code: str) -> str:
 
 
 async def set_bot_commands(b: Bot):
-    commands_ru = [BotCommand(command="start", description="🔄 Перезапуск")]
-    commands_kk = [BotCommand(command="start", description="🔄 Қайта бастау")]
+    commands_ru = [
+        BotCommand(command="start", description="🔄 Перезапуск"),
+        BotCommand(command="menu", description="📱 Главное меню")
+    ]
+    commands_kk = [
+        BotCommand(command="start", description="🔄 Қайта бастау"),
+        BotCommand(command="menu", description="📱 Басты мәзір")
+    ]
     await b.set_my_commands(commands_ru, language_code="ru")
     await b.set_my_commands(commands_kk, language_code="kk")
     await b.set_my_commands(commands_ru)
@@ -290,11 +290,12 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
     existing = get_user(message.from_user.id)
     if existing:
         lang = existing["lang"]
-        await message.answer(
-            t("already_registered", lang),
+        msg = await message.answer(
+            t("already_registered", lang) + "\n\n<i>Открываю главное меню...</i>",
             parse_mode=ParseMode.HTML,
-            reply_markup=menu_for_user(existing),
+            reply_markup=menu_for_user_inline(existing),
         )
+        await state.update_data(main_msg_id=msg.message_id)
         return
 
     deep_link_code = command.args
@@ -313,6 +314,19 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
         parse_mode=ParseMode.HTML,
     )
     await state.set_state(Registration.choosing_lang)
+
+@router.message(Command("menu"))
+async def cmd_menu(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    if not user:
+        await message.answer("Вы не зарегистрированы.\nВведите /start", reply_markup=ReplyKeyboardRemove())
+        return
+    
+    lang = user.get("lang", "ru")
+    text = "🌟 <b>Главное меню</b> 🌟" if lang == "ru" else "🌟 <b>Басты мәзір</b> 🌟"
+    msg = await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
+    await state.update_data(main_msg_id=msg.message_id)
+
 
 @router.message(Command("logout"))
 async def cmd_logout(message: Message, state: FSMContext):
@@ -559,12 +573,13 @@ async def process_name(message: Message, state: FSMContext):
         class_code=data.get("class_code"),
         shift=data.get("shift", 1),
     )
-    await message.answer(
+    msg = await message.answer(
         t("registration_done", lang),
         parse_mode=ParseMode.HTML,
-        reply_markup=menu_for_user(user),
+        reply_markup=menu_for_user_inline(user),
     )
     await state.clear()
+    await state.update_data(main_msg_id=msg.message_id)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -572,12 +587,12 @@ async def process_name(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_schedule")))
-async def cmd_schedule(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_schedule")
+async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
+    user = get_user(callback.from_user.id)
     if not user:
-        await message.answer(t("not_registered", "ru"), parse_mode=ParseMode.HTML)
+        await callback.answer("Not registered", show_alert=True)
         return
     lang = user["lang"]
     bell_mode = get_setting("bell_mode", "standard")
@@ -603,7 +618,7 @@ async def cmd_schedule(message: Message, state: FSMContext):
     shifts = get_shifts(bell_mode, show_day)
     shift_data = shifts.get(user["shift"], {})
     if not lessons:
-        await message.answer(t("no_lessons", lang), parse_mode=ParseMode.HTML)
+        await callback.message.edit_text(t("no_lessons", lang), parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
         return
     lines = [f"📆 <b>{day_name}</b>\n"]
     for ls in lessons:
@@ -626,9 +641,8 @@ async def cmd_schedule(message: Message, state: FSMContext):
             lines.append(f"{connector} {num}. <b>{lesson_name}</b>  ({start}–{end})")
     mode_label = t(BELL_MODE_LABEL.get(bell_mode, "bell_standard"), lang)
     lines.append(f"\n<i>{mode_label}</i>")
-    header_key = "schedule_tomorrow" if is_tomorrow else "schedule_today"
     text = t(header_key, lang).format(lessons="\n".join(lines))
-    await message.answer(text, parse_mode=ParseMode.HTML)
+    await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -636,12 +650,12 @@ async def cmd_schedule(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_profile")))
-async def cmd_profile(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_profile")
+async def cmd_profile(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
+    user = get_user(callback.from_user.id)
     if not user:
-        await message.answer(t("not_registered", "ru"), parse_mode=ParseMode.HTML)
+        await callback.answer("Not registered", show_alert=True)
         return
     lang = user["lang"]
     role_label = t(ROLE_MAP.get(user["role"], "role_student"), lang)
@@ -652,7 +666,7 @@ async def cmd_profile(message: Message, state: FSMContext):
         shift=user["shift"],
         lang=LANG_LABEL.get(lang, lang),
     )
-    await message.answer(text, parse_mode=ParseMode.HTML)
+    await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -660,12 +674,12 @@ async def cmd_profile(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_settings")))
-async def cmd_settings(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_settings")
+async def cmd_settings(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
+    user = get_user(callback.from_user.id)
     if not user:
-        await message.answer(t("not_registered", "ru"), parse_mode=ParseMode.HTML)
+        await callback.answer("Not registered", show_alert=True)
         return
     lang = user["lang"]
     new_lang = "kk" if lang == "ru" else "ru"
@@ -682,8 +696,10 @@ async def cmd_settings(message: Message, state: FSMContext):
         agg_warn_text = t("setting_aggressive_warn_on", lang) if agg_warn == "on" else t("setting_aggressive_warn_off", lang)
         kb_rows.append([InlineKeyboardButton(text=agg_warn_text, callback_data="toggle_agg_warn")])
 
+    # Append a "Back to Menu" button for settings
+    kb_rows.append([InlineKeyboardButton(text="🔙 " + ("Назад в меню" if lang == "ru" else "Мәзірге қайту"), callback_data="main_menu_profile")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    await message.answer(
+    await callback.message.edit_text(
         t("settings_text", lang),
         parse_mode=ParseMode.HTML,
         reply_markup=kb,
@@ -739,8 +755,8 @@ async def process_change_lang(callback: CallbackQuery):
     await callback.message.edit_text(
         t("lang_changed", new_lang),
         parse_mode=ParseMode.HTML,
+        reply_markup=menu_for_user_inline(user)
     )
-    await callback.message.answer("👌", reply_markup=menu_for_user(user))
     await callback.answer()
 
 
@@ -749,12 +765,12 @@ async def process_change_lang(callback: CallbackQuery):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_help")))
-async def cmd_help(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_help")
+async def cmd_help(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
+    user = get_user(callback.from_user.id)
     lang = user["lang"] if user else "ru"
-    await message.answer(t("help_text", lang), parse_mode=ParseMode.HTML)
+    await callback.message.edit_text(t("help_text", lang), parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -762,18 +778,18 @@ async def cmd_help(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_bell_mode")))
-async def btn_bell_mode(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_bell_mode")
+async def btn_bell_mode(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    user = get_user(callback.from_user.id)
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
     current_mode = get_setting("bell_mode", "standard")
     current_label = t(BELL_MODE_LABEL.get(current_mode, "bell_standard"), lang)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    kb_rows = [
         [InlineKeyboardButton(
             text=t("bell_standard", lang),
             callback_data="bell_set_standard",
@@ -786,8 +802,10 @@ async def btn_bell_mode(message: Message, state: FSMContext):
             text=t("bell_custom", lang),
             callback_data="bell_set_custom",
         )],
-    ])
-    await message.answer(
+        [InlineKeyboardButton(text="🔙 " + ("Назад", "Мәзірге")[lang=="kk"], callback_data="main_menu_profile")]
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await callback.message.edit_text(
         t("bell_mode_status", lang).format(current=current_label),
         parse_mode=ParseMode.HTML,
         reply_markup=kb,
@@ -811,8 +829,8 @@ async def process_bell_mode(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.message(F.text.in_(BTN("menu_stats")))
-async def btn_stats(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_stats")
+async def btn_stats(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user = get_user(message.from_user.id)
     if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
@@ -847,13 +865,13 @@ async def btn_stats(message: Message, state: FSMContext):
 # ✏️ ИЗМЕНЕНИЕ РАСПИСАНИЯ (INLINE)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@router.message(F.text.in_(BTN("menu_edit_schedule")))
-async def btn_edit_schedule_inline(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_edit_schedule")
+async def btn_edit_schedule_inline(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    user = get_user(callback.from_user.id)
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
         
     lang = user["lang"]
@@ -867,33 +885,36 @@ async def btn_edit_schedule_inline(message: Message, state: FSMContext):
         if len(row) == 3:
             keyboard.append(row)
             row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([KeyboardButton(text="Отмена")])
+        kb_rows.append(row)
     
-    kb = ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    kb_rows.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     
-    await message.answer("Для какого класса вы хотите изменить расписание? (Выберите из списка)", reply_markup=kb, parse_mode=ParseMode.HTML)
+    await callback.message.edit_text("Для какого класса вы хотите изменить расписание? (Выберите из списка)", reply_markup=kb, parse_mode=ParseMode.HTML)
     await state.set_state(EditScheduleInline.choosing_class)
 
-@router.message(StateFilter(EditScheduleInline.choosing_class))
-async def edit_schedule_inline_select_class(message: Message, state: FSMContext):
-    if not message.text:
-        return
-        
-    user = get_user(message.from_user.id)
+@router.callback_query(StateFilter(EditScheduleInline.choosing_class))
+async def edit_schedule_inline_select_class(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
     lang = user["lang"] if user else "ru"
-    if message.text.lower() in ("отмена", "cancel", "болдырмау"):
+    class_code = callback.data.strip()
+    
+    # Check if they pressed cancel / back
+    if class_code == "main_menu_profile":
         await state.clear()
-        await message.answer("🚫", reply_markup=menu_for_user(user))
+        await cmd_profile(callback, state)
         return
         
-    class_code = format_class(message.text.strip().upper())
     await state.update_data(edit_class=class_code)
-    
-    # Важно: убираем Reply-клавиатуру, чтобы оставить только Inline
+    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
+        [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
+        [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
+        [InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]
+    ])
     msg_text = f"Выбран класс: <b>{class_code}</b>\n\nВыберите день недели:"
-    await message.answer(msg_text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await callback.message.edit_text(msg_text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
 @router.callback_query(F.data.startswith("es_day_"))
 async def edit_schedule_inline_select_day(callback: CallbackQuery, state: FSMContext):
@@ -943,11 +964,7 @@ async def edit_schedule_inline_back_day(callback: CallbackQuery, state: FSMConte
 
 @router.callback_query(F.data == "es_cancel")
 async def edit_schedule_inline_cancel(callback: CallbackQuery, state: FSMContext):
-    user = get_user(callback.from_user.id)
-    await state.clear()
-    await callback.message.edit_text("❌ Редактирование отменено.", reply_markup=None)
-    await callback.message.answer("Главное меню:", reply_markup=menu_for_user(user))
-    await callback.answer()
+    await cmd_profile(callback, state)
 
 @router.callback_query(F.data.startswith("es_les_"))
 async def edit_schedule_inline_select_lesson(callback: CallbackQuery, state: FSMContext):
@@ -1049,7 +1066,13 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
     
     if subj_name.lower() in ("отмена", "cancel", "болдырмау"):
         await state.set_state(None)
-        await message.answer("🚫", reply_markup=menu_for_user(user))
+        try:
+            main_msg_id = data.get("main_msg_id")
+            await message.delete()
+            if main_msg_id:
+                await bot.edit_message_text(chat_id=message.from_user.id, message_id=main_msg_id, text="🚫", reply_markup=menu_for_user_inline(user))
+        except Exception:
+            pass
         return
         
     from db import update_single_lesson
@@ -1074,9 +1097,24 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
     kb_rows.append([InlineKeyboardButton(text="🔙 К выбору дня", callback_data="es_back_day")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     
-    await message.answer("✅ Вручную сохранено: " + subj_name, reply_markup=menu_for_user(user))
     await state.set_state(None)
-    await message.answer(f"📆 <b>{days[day_idx]}</b> ({class_code})\nВыберите урок для изменения:", reply_markup=kb, parse_mode=ParseMode.HTML)
+    
+    try:
+        main_msg_id = data.get("main_msg_id")
+        text_content = f"✅ Вручную сохранено: {subj_name}\n\n📆 <b>{days[day_idx]}</b> ({class_code})\nВыберите урок для изменения:"
+        if main_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.from_user.id,
+                message_id=main_msg_id,
+                text=text_content,
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            msg = await message.answer(text_content, reply_markup=kb, parse_mode=ParseMode.HTML)
+            await state.update_data(main_msg_id=msg.message_id)
+    except Exception:
+        pass
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1084,27 +1122,29 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_gen_teacher_code")))
-async def btn_gen_teacher_code(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_gen_teacher_code")
+async def btn_gen_teacher_code(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    user = get_user(callback.from_user.id)
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     await state.update_data(gen_role="teacher", gen_reusable=False)
     lang = user["lang"]
-    await message.answer(t("gen_code_ask_class", lang), parse_mode=ParseMode.HTML)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    await callback.message.edit_text(t("gen_code_ask_class", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
     await state.set_state(GenCode.entering_class_code)
 
 
-@router.message(F.text.in_(BTN("menu_gen_student_code")))
-async def btn_gen_student_code(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_gen_student_code")
+async def btn_gen_student_code(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
+    user = get_user(callback.from_user.id)
     if not user or user["role"] not in ("zavuch", "teacher"):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
     if user["role"] == "teacher" and user.get("class_code"):
@@ -1112,12 +1152,14 @@ async def btn_gen_student_code(message: Message, state: FSMContext):
             role="student",
             class_code=user["class_code"],
             shift=user["shift"],
-            created_by=message.from_user.id,
+            created_by=callback.from_user.id,
             reusable=True,
         )
         link = make_invite_link(code)
         role_label = t("role_student", lang)
-        await message.answer(
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu_profile")]])
+        await callback.message.edit_text(
             t("code_generated", lang).format(
                 role=role_label,
                 class_code=user["class_code"],
@@ -1126,10 +1168,12 @@ async def btn_gen_student_code(message: Message, state: FSMContext):
                 link=link,
             ),
             parse_mode=ParseMode.HTML,
+            reply_markup=kb
         )
         return
     await state.update_data(gen_role="student", gen_reusable=True)
-    await message.answer(t("gen_code_ask_class", lang), parse_mode=ParseMode.HTML)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    await callback.message.edit_text(t("gen_code_ask_class", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
     await state.set_state(GenCode.entering_class_code)
 
 
@@ -1145,13 +1189,26 @@ async def gen_code_class(message: Message, state: FSMContext):
         [
             InlineKeyboardButton(text="1️⃣ Смена", callback_data="gen_shift_1"),
             InlineKeyboardButton(text="2️⃣ Смена", callback_data="gen_shift_2"),
-        ]
+        ],
+        [InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]
     ])
-    await message.answer(
-        t("gen_code_ask_shift", lang),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb,
-    )
+    try:
+        data = await state.get_data()
+        main_msg_id = data.get("main_msg_id")
+        await message.delete()
+        if main_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.from_user.id,
+                message_id=main_msg_id,
+                text=t("gen_code_ask_shift", lang),
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        else:
+            msg = await message.answer(t("gen_code_ask_shift", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
+            await state.update_data(main_msg_id=msg.message_id)
+    except Exception as e:
+        logger.error(f"Error in gen_code_class: {e}")
     await state.set_state(GenCode.choosing_shift)
 
 
@@ -1174,6 +1231,7 @@ async def gen_code_shift(callback: CallbackQuery, state: FSMContext):
     )
     link = make_invite_link(code)
     role_label = t(ROLE_MAP.get(gen_role, "role_student"), lang)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu_profile")]])
     await callback.message.edit_text(
         t("code_generated", lang).format(
             role=role_label,
@@ -1183,6 +1241,7 @@ async def gen_code_shift(callback: CallbackQuery, state: FSMContext):
             link=link,
         ),
         parse_mode=ParseMode.HTML,
+        reply_markup=kb
     )
     await callback.answer()
     await state.clear()
@@ -1193,18 +1252,19 @@ async def gen_code_shift(callback: CallbackQuery, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_my_codes")))
-async def btn_my_codes(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_my_codes")
+async def btn_my_codes(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
+    user = get_user(callback.from_user.id)
     if not user or user["role"] != "teacher":
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
-    codes = get_active_codes_by_creator(message.from_user.id)
+    codes = get_active_codes_by_creator(callback.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu_profile")]])
     if not codes:
-        await message.answer(t("no_codes", lang), parse_mode=ParseMode.HTML)
+        await callback.message.edit_text(t("no_codes", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
         return
     lines = [t("my_codes_title", lang)]
     for i, c in enumerate(codes, 1):
@@ -1216,7 +1276,7 @@ async def btn_my_codes(message: Message, state: FSMContext):
             f'{connector} {reuse_icon} <code>{c["code"]}</code> — {role_label} · {c["class_code"]} · 👥 {c["use_count"]}'
         )
         lines.append(f'   🔗 {link}')
-    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    await callback.message.edit_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=kb)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1225,16 +1285,17 @@ async def btn_my_codes(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.message(F.text.in_(BTN("menu_send_all")))
-async def btn_send_all(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_send_all")
+async def btn_send_all(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    user = get_user(callback.from_user.id)
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
-    await message.answer(t("send_all_prompt", lang), parse_mode=ParseMode.HTML)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    await callback.message.edit_text(t("send_all_prompt", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
     await state.set_state(Broadcast.waiting_text_all)
 
 
@@ -1256,22 +1317,37 @@ async def broadcast_all_confirm(message: Message, state: FSMContext):
         [InlineKeyboardButton(text=t("btn_confirm_send", lang), callback_data="broadcast_confirm")],
         [InlineKeyboardButton(text=t("btn_cancel_send", lang), callback_data="broadcast_cancel")],
     ])
-    await message.answer(
-        t("broadcast_confirm", lang).format(count=len(all_users), text=preview),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb,
-    )
+    
+    try:
+        data = await state.get_data()
+        main_msg_id = data.get("main_msg_id")
+        await message.delete()
+        text_content = t("broadcast_confirm", lang).format(count=len(all_users), text=preview)
+        if main_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.from_user.id,
+                message_id=main_msg_id,
+                text=text_content,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        else:
+            msg = await message.answer(text_content, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await state.update_data(main_msg_id=msg.message_id)
+    except Exception as e:
+        logger.error(f"Error in broadcast_all_confirm: {e}")
 
 
-@router.message(F.text.in_(BTN("menu_send_class")))
-async def btn_send_class_teacher(message: Message, state: FSMContext):
-    user = get_user(message.from_user.id)
+@router.callback_query(F.data == "main_menu_send_class")
+async def btn_send_class_teacher(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
     if not user or user["role"] != "teacher":
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
-    await message.answer(t("send_class_prompt", lang), parse_mode=ParseMode.HTML)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    await callback.message.edit_text(t("send_class_prompt", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
     await state.set_state(Broadcast.waiting_text_class)
 
 
@@ -1298,26 +1374,41 @@ async def broadcast_class_confirm(message: Message, state: FSMContext):
         [InlineKeyboardButton(text=t("btn_confirm_send", lang), callback_data="broadcast_confirm")],
         [InlineKeyboardButton(text=t("btn_cancel_send", lang), callback_data="broadcast_cancel")],
     ])
-    await message.answer(
-        t("broadcast_confirm", lang).format(count=len(class_users), text=preview),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb,
-    )
+    
+    try:
+        data = await state.get_data()
+        main_msg_id = data.get("main_msg_id")
+        await message.delete()
+        text_content = t("broadcast_confirm", lang).format(count=len(class_users), text=preview)
+        if main_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.from_user.id,
+                message_id=main_msg_id,
+                text=text_content,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        else:
+            msg = await message.answer(text_content, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await state.update_data(main_msg_id=msg.message_id)
+    except Exception as e:
+        logger.error(f"Error in broadcast_class_confirm: {e}")
 
 
 # ━━ Завуч → конкретный класс ━━
 
 
-@router.message(F.text.in_(BTN("menu_send_class_zavuch")))
-async def btn_send_class_zavuch(message: Message, state: FSMContext):
+@router.callback_query(F.data == "main_menu_send_class_zavuch")
+async def btn_send_class_zavuch(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    user = get_user(callback.from_user.id)
+    if not user or (user["role"] != "zavuch" and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
-        await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
+        await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
-    await message.answer(t("send_class_ask", lang), parse_mode=ParseMode.HTML)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    await callback.message.edit_text(t("send_class_ask", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
     await state.set_state(Broadcast.waiting_class_code_zavuch)
 
 
@@ -1329,7 +1420,26 @@ async def broadcast_zavuch_class_code(message: Message, state: FSMContext):
     lang = user["lang"] if user else "ru"
     class_code = message.text.strip().upper()
     await state.update_data(broadcast_class=class_code, broadcast_sender_name=user["full_name"])
-    await message.answer(t("send_class_prompt", lang), parse_mode=ParseMode.HTML)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    try:
+        data = await state.get_data()
+        main_msg_id = data.get("main_msg_id")
+        await message.delete()
+        if main_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.from_user.id,
+                message_id=main_msg_id,
+                text=t("send_class_prompt", lang),
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        else:
+            msg = await message.answer(t("send_class_prompt", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
+            await state.update_data(main_msg_id=msg.message_id)
+    except Exception as e:
+        logger.error(f"Error in broadcast_zavuch_class_code: {e}")
+        
     await state.set_state(Broadcast.waiting_text_class_zavuch)
 
 
@@ -1348,11 +1458,24 @@ async def broadcast_zavuch_class_confirm(message: Message, state: FSMContext):
         [InlineKeyboardButton(text=t("btn_confirm_send", lang), callback_data="broadcast_confirm")],
         [InlineKeyboardButton(text=t("btn_cancel_send", lang), callback_data="broadcast_cancel")],
     ])
-    await message.answer(
-        t("broadcast_confirm", lang).format(count=len(class_users), text=preview),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb,
-    )
+    
+    try:
+        main_msg_id = data.get("main_msg_id")
+        await message.delete()
+        text_content = t("broadcast_confirm", lang).format(count=len(class_users), text=preview)
+        if main_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.from_user.id,
+                message_id=main_msg_id,
+                text=text_content,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        else:
+            msg = await message.answer(text_content, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await state.update_data(main_msg_id=msg.message_id)
+    except Exception as e:
+        logger.error(f"Error in broadcast_zavuch_class_confirm: {e}")
 
 
 # ━━ Подтверждение / Отмена рассылки ━━
@@ -1394,7 +1517,10 @@ async def broadcast_execute(callback: CallbackQuery, state: FSMContext):
     result = t("broadcast_done", lang).format(count=count)
     if errors:
         result += f"\n⚠️ Ошибок: {errors}"
-    await callback.message.edit_text(result, parse_mode=ParseMode.HTML)
+        
+    kb_rows = [[InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu_profile")]]
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await callback.message.edit_text(result, parse_mode=ParseMode.HTML, reply_markup=kb)
     await callback.answer()
     await state.clear()
 
@@ -1403,9 +1529,13 @@ async def broadcast_execute(callback: CallbackQuery, state: FSMContext):
 async def broadcast_cancel(callback: CallbackQuery, state: FSMContext):
     user = get_user(callback.from_user.id)
     lang = user["lang"] if user else "ru"
+    kb_rows = [[InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu_profile")]]
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    
     await callback.message.edit_text(
         t("broadcast_cancelled", lang),
         parse_mode=ParseMode.HTML,
+        reply_markup=kb
     )
     await callback.answer()
     await state.clear()
