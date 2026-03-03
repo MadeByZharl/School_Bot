@@ -16,6 +16,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.enums import ParseMode
 from aiogram import BaseMiddleware
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import ErrorEvent
 from typing import Callable, Dict, Any, Awaitable
 from cachetools import TTLCache
 
@@ -1734,6 +1736,20 @@ async def auto_backup_task():
                 await bot.send_message(chat_id=ADMIN_ID, text=f"❌ Ошибка автоматического бэкапа: {e}")
             except:
                 pass
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ERROR HANDLER
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.errors()
+async def global_error_handler(event: ErrorEvent):
+    if isinstance(event.exception, TelegramBadRequest):
+        if "message is not modified" in str(event.exception).lower():
+            # User clicked the same inline button, safely ignore
+            return
+    # Log other unhandled exceptions
+    logger.error(f"Update {event.update.update_id} caused error: {event.exception}", exc_info=True)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
