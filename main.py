@@ -225,7 +225,7 @@ def get_main_menu_inline(lang: str = "ru", role: str = "student", is_admin: bool
     rows = [
         [
             InlineKeyboardButton(text=t("menu_schedule", lang), callback_data="main_menu_schedule"),
-            InlineKeyboardButton(text="⏰", callback_data="main_menu_timer"),
+            InlineKeyboardButton(text="⏰ " + ("Таймер" if lang == "ru" else "Таймер"), callback_data="main_menu_timer"),
         ],
         [
             InlineKeyboardButton(text=t("menu_profile", lang), callback_data="main_menu_profile"),
