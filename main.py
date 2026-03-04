@@ -129,6 +129,9 @@ router = Router()
 spam_cache = TTLCache(maxsize=10000, ttl=0.3)
 warning_cache = TTLCache(maxsize=10000, ttl=2.0)
 
+# Stores last notification message_id per user to delete before sending new one
+_last_notif: dict[int, int] = {}
+
 class AntiSpamMiddleware(BaseMiddleware):
     async def __call__(
         self,
@@ -1681,7 +1684,21 @@ async def schedule_notifier():
                             text = t("lesson_end", lang).format(num=lesson_num)
 
                         try:
-                            await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
+                            uid = user["tg_id"]
+                            platform = user.get("platform", "telegram")
+                            # Delete old notification to keep chat clean
+                            if platform == "telegram" and uid in _last_notif:
+                                try:
+                                    await bot.delete_message(uid, _last_notif[uid])
+                                except Exception:
+                                    pass  # message already deleted or too old
+                            
+                            if platform == "telegram":
+                                msg = await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+                                _last_notif[uid] = msg.message_id
+                            else:
+                                await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
+                            
                             sent += 1
                             if sent % 25 == 0:
                                 await asyncio.sleep(1)
