@@ -29,7 +29,8 @@ from db import (
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
-    format_class, update_user_lang, get_bot_stats, get_full_backup
+    format_class, update_user_lang, get_bot_stats, get_full_backup,
+    get_user_setting, set_user_setting,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
@@ -224,6 +225,7 @@ def get_main_menu_inline(lang: str = "ru", role: str = "student", is_admin: bool
     rows = [
         [
             InlineKeyboardButton(text=t("menu_schedule", lang), callback_data="main_menu_schedule"),
+            InlineKeyboardButton(text="⏰", callback_data="main_menu_timer"),
         ],
         [
             InlineKeyboardButton(text=t("menu_profile", lang), callback_data="main_menu_profile"),
@@ -658,7 +660,13 @@ async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
     text_template = header_text_ru if lang == "ru" else header_text_kk
     text = text_template.format(lessons="\n".join(lines))
     
-    await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
+    kb_rows = [
+        [InlineKeyboardButton(text="📅 Вся неделя" if lang == "ru" else "📅 Бүкіл апта", callback_data="main_menu_schedule_week")],
+    ]
+    kb_rows.append([InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_profile")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    
+    await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -712,6 +720,10 @@ async def cmd_settings(callback: CallbackQuery, state: FSMContext):
         agg_warn_text = t("setting_aggressive_warn_on", lang) if agg_warn == "on" else t("setting_aggressive_warn_off", lang)
         kb_rows.append([InlineKeyboardButton(text=agg_warn_text, callback_data="toggle_agg_warn")])
 
+    kb_rows.append([InlineKeyboardButton(
+        text="🔔 " + ("Уведомления" if lang == "ru" else "Хабарламалар"),
+        callback_data="notif_settings",
+    )])
     # Append a "Back to Menu" button for settings
     kb_rows.append([InlineKeyboardButton(text="🔙 " + ("Назад в меню" if lang == "ru" else "Мәзірге қайту"), callback_data="main_menu_profile")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -773,6 +785,188 @@ async def process_change_lang(callback: CallbackQuery):
         parse_mode=ParseMode.HTML,
         reply_markup=menu_for_user_inline(user)
     )
+    await callback.answer()
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔔 НАСТРОЙКИ УВЕДОМЛЕНИЙ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NOTIF_KEYS = [
+    ("notif_start", "notif_start_label"),
+    ("notif_end", "notif_end_label"),
+    ("notif_warning", "notif_warning_label"),
+]
+
+
+def _build_notif_kb(tg_id: int, lang: str) -> InlineKeyboardMarkup:
+    """Build the notification settings keyboard with current toggle states."""
+    kb_rows = []
+    for key, label_key in NOTIF_KEYS:
+        current = get_user_setting(tg_id, key, "on")
+        icon = "✅" if current == "on" else "❌"
+        kb_rows.append([InlineKeyboardButton(
+            text=f"{icon} {t(label_key, lang)}",
+            callback_data=f"toggle_notif_{key}",
+        )])
+    kb_rows.append([InlineKeyboardButton(
+        text="🔙 " + ("Назад" if lang == "ru" else "Артқа"),
+        callback_data="main_menu_settings",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+@router.callback_query(F.data == "notif_settings")
+async def notif_settings(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+    lang = user["lang"]
+    kb = _build_notif_kb(callback.from_user.id, lang)
+    await callback.message.edit_text(t("notif_settings_title", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("toggle_notif_"))
+async def toggle_notif(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    if not user:
+        return
+    lang = user["lang"]
+    key = callback.data.replace("toggle_notif_", "")  # e.g. "notif_start"
+    current = get_user_setting(callback.from_user.id, key, "on")
+    new_val = "off" if current == "on" else "on"
+    set_user_setting(callback.from_user.id, key, new_val)
+    kb = _build_notif_kb(callback.from_user.id, lang)
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer(t("notif_updated", lang))
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📅 РАСПИСАНИЕ НА НЕДЕЛЮ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+@router.callback_query(F.data == "main_menu_schedule_week")
+async def schedule_week(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+    lang = user["lang"]
+    class_code = user.get("class_code", "")
+    day_names = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
+    bell_mode = get_setting("bell_mode", "standard")
+
+    lines = [t("schedule_week_title", lang)]
+    for day_idx in range(6):  # Mon-Sat
+        day_lessons = get_lessons(class_code, day_idx)
+        shifts = get_shifts(bell_mode, day_idx)
+        shift_data = shifts.get(user["shift"], {})
+        lines.append(f"\n📆 <b>{day_names[day_idx]}</b>")
+        if not day_lessons:
+            lines.append("   —")
+            continue
+        for ls in day_lessons:
+            num = ls["lesson_num"]
+            time_info = shift_data.get(num, {})
+            start = time_info.get("start", "")
+            end = time_info.get("end", "")
+
+            lesson_name = ls["lesson_name"]
+            if lang == "ru":
+                from translations import LESSON_TRANSLATIONS
+                lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
+
+            time_str = f"  <i>{start}–{end}</i>" if start else ""
+            lines.append(f"   {num}. {lesson_name}{time_str}")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_schedule")],
+    ])
+    await callback.message.edit_text("\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=kb)
+    await callback.answer()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ⏰ ТАЙМЕР УРОКА
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+@router.callback_query(F.data == "main_menu_timer")
+async def lesson_timer(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+    lang = user["lang"]
+    weekday = get_weekday_almaty()
+
+    if weekday >= 6:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_profile")],
+        ])
+        await callback.message.edit_text(t("timer_weekend", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
+        await callback.answer()
+        return
+
+    bell_mode = get_setting("bell_mode", "standard")
+    shifts = get_shifts(bell_mode, weekday)
+    shift_data = shifts.get(user["shift"], {})
+    now_time = get_now_almaty()
+    class_code = user.get("class_code", "")
+
+    lessons_map = {l["lesson_num"]: l["lesson_name"] for l in get_lessons(class_code, weekday)}
+    if lang == "ru":
+        from translations import LESSON_TRANSLATIONS
+        lessons_map = {k: LESSON_TRANSLATIONS.get(v, v) for k, v in lessons_map.items()}
+
+    # Parse current time
+    now_h, now_m = map(int, now_time.split(":"))
+    now_minutes = now_h * 60 + now_m
+
+    # Sort lessons by start time
+    sorted_lessons = sorted(shift_data.items(), key=lambda x: x[1]["start"])
+
+    text = None
+    for lesson_num, times in sorted_lessons:
+        s_h, s_m = map(int, times["start"].split(":"))
+        e_h, e_m = map(int, times["end"].split(":"))
+        start_min = s_h * 60 + s_m
+        end_min = e_h * 60 + e_m
+
+        if now_minutes < start_min:
+            # Before this lesson starts
+            remaining = start_min - now_minutes
+            if lesson_num == sorted_lessons[0][0]:
+                text = t("timer_not_started", lang).format(mins=remaining)
+            else:
+                text = t("timer_in_break", lang).format(num=lesson_num, mins=remaining)
+            break
+
+        if start_min <= now_minutes < end_min:
+            # Currently in this lesson
+            remaining = end_min - now_minutes
+            name = lessons_map.get(lesson_num, f"Урок {lesson_num}")
+            text = t("timer_in_lesson", lang).format(
+                num=lesson_num,
+                name=name,
+                start=times["start"],
+                end=times["end"],
+                mins=remaining,
+            )
+            break
+
+    if text is None:
+        text = t("timer_no_lessons", lang)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 " + ("Обновить" if lang == "ru" else "Жаңарту"), callback_data="main_menu_timer")],
+        [InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_profile")],
+    ])
+    await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
     await callback.answer()
 
 
@@ -1658,6 +1852,15 @@ async def schedule_notifier():
 
                         # Если этого урока нет в расписании класса — НЕ уведомляем
                         if lesson_num not in lessons_map:
+                            continue
+
+                        # ── Проверка пользовательских настроек уведомлений ──
+                        uid = user["tg_id"]
+                        if is_start and get_user_setting(uid, "notif_start", "on") == "off":
+                            continue
+                        if is_end and get_user_setting(uid, "notif_end", "on") == "off":
+                            continue
+                        if is_warning and get_user_setting(uid, "notif_warning", "on") == "off":
                             continue
 
                         lang = user["lang"]

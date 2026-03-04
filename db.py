@@ -77,6 +77,14 @@ def init_db():
             `value` VARCHAR(255) NOT NULL
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         """,
+        """
+        CREATE TABLE IF NOT EXISTS user_settings (
+            tg_id BIGINT NOT NULL,
+            setting_key VARCHAR(50) NOT NULL,
+            setting_value VARCHAR(50) NOT NULL DEFAULT 'on',
+            PRIMARY KEY (tg_id, setting_key)
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        """,
     ]
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -139,6 +147,26 @@ def set_setting(key: str, value: str):
             cursor.execute(
                 "REPLACE INTO settings (`key`, `value`) VALUES (%s, %s)",
                 (key, value),
+            )
+
+
+def get_user_setting(tg_id: int, key: str, default: str = "on") -> str:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT setting_value FROM user_settings WHERE tg_id = %s AND setting_key = %s",
+                (tg_id, key),
+            )
+            row = cursor.fetchone()
+            return row["setting_value"] if row else default
+
+
+def set_user_setting(tg_id: int, key: str, value: str):
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "REPLACE INTO user_settings (tg_id, setting_key, setting_value) VALUES (%s, %s, %s)",
+                (tg_id, key, value),
             )
 
 
