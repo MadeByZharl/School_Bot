@@ -131,6 +131,8 @@ warning_cache = TTLCache(maxsize=2000, ttl=2.0)
 _last_notif = TTLCache(maxsize=20000, ttl=60 * 60 * 24 * 2)
 # Active opened daily schedule messages for minute-by-minute refresh.
 _live_schedule_views = TTLCache(maxsize=5000, ttl=60 * 90)
+# Prevent duplicate evening digests per user/day.
+_evening_digest_sent = TTLCache(maxsize=50000, ttl=60 * 60 * 48)
 
 class AntiSpamMiddleware(BaseMiddleware):
     async def __call__(
@@ -838,24 +840,64 @@ async def process_change_lang(callback: CallbackQuery):
 # 🔔 НАСТРОЙКИ УВЕДОМЛЕНИЙ
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NOTIF_KEYS = [
-    ("notif_start", "notif_start_label"),
-    ("notif_end", "notif_end_label"),
-    ("notif_warning", "notif_warning_label"),
-]
+WARNING_OFFSET_OPTIONS = (5, 10, 15)
+DEFAULT_WARNING_OFFSET = 5
+EVENING_DIGEST_TIME = "20:00"
+TOGGLE_NOTIF_KEYS = {
+    "notif_start",
+    "notif_end",
+    "notif_warning",
+    "notif_evening_tomorrow",
+}
+
+
+def _normalize_warning_offset(value: str | None) -> int:
+    try:
+        parsed = int(str(value))
+    except Exception:
+        return DEFAULT_WARNING_OFFSET
+    return parsed if parsed in WARNING_OFFSET_OPTIONS else DEFAULT_WARNING_OFFSET
 
 
 def _build_notif_kb(tg_id: int, lang: str) -> InlineKeyboardMarkup:
-    """Build the notification settings keyboard with current toggle states."""
-    settings = get_user_settings_bulk([tg_id], [key for key, _ in NOTIF_KEYS]).get(tg_id, {})
+    """Build notification settings keyboard with toggles and warning offset."""
+    settings = get_user_settings_bulk(
+        [tg_id],
+        [
+            "notif_start",
+            "notif_end",
+            "notif_warning",
+            "notif_warning_offset",
+            "notif_evening_tomorrow",
+        ],
+    ).get(tg_id, {})
+
+    warning_offset = _normalize_warning_offset(settings.get("notif_warning_offset"))
     kb_rows = []
-    for key, label_key in NOTIF_KEYS:
-        current = settings.get(key, "on")
+
+    for key, label_key, default_val in [
+        ("notif_start", "notif_start_label", "on"),
+        ("notif_end", "notif_end_label", "on"),
+        ("notif_warning", "notif_warning_label", "on"),
+        ("notif_evening_tomorrow", "notif_evening_tomorrow_label", "off"),
+    ]:
+        current = settings.get(key, default_val)
         icon = "✅" if current == "on" else "❌"
+        label = t(label_key, lang)
+        if key == "notif_warning":
+            label = label.format(minutes=warning_offset)
         kb_rows.append([InlineKeyboardButton(
-            text=f"{icon} {t(label_key, lang)}",
+            text=f"{icon} {label}",
             callback_data=f"toggle_notif_{key}",
         )])
+
+    kb_rows.append([
+        InlineKeyboardButton(
+            text=("✅ " if warning_offset == option else "▫️ ") + f"{option} мин",
+            callback_data=f"set_warn_offset_{option}",
+        )
+        for option in WARNING_OFFSET_OPTIONS
+    ])
     kb_rows.append([InlineKeyboardButton(
         text="🔙 " + ("Назад" if lang == "ru" else "Артқа"),
         callback_data="main_menu_settings",
@@ -882,9 +924,31 @@ async def toggle_notif(callback: CallbackQuery):
         return
     lang = user["lang"]
     key = callback.data.replace("toggle_notif_", "")  # e.g. "notif_start"
-    current = get_user_setting(callback.from_user.id, key, "on")
+    if key not in TOGGLE_NOTIF_KEYS:
+        await callback.answer("Invalid option", show_alert=False)
+        return
+    default_val = "off" if key == "notif_evening_tomorrow" else "on"
+    current = get_user_setting(callback.from_user.id, key, default_val)
     new_val = "off" if current == "on" else "on"
     set_user_setting(callback.from_user.id, key, new_val)
+    kb = _build_notif_kb(callback.from_user.id, lang)
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer(t("notif_updated", lang))
+
+
+@router.callback_query(F.data.startswith("set_warn_offset_"))
+async def set_warning_offset(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    if not user:
+        return
+    lang = user["lang"]
+    raw = callback.data.replace("set_warn_offset_", "")
+    offset = _normalize_warning_offset(raw)
+    if str(offset) != raw:
+        await callback.answer("Invalid value", show_alert=False)
+        return
+
+    set_user_setting(callback.from_user.id, "notif_warning_offset", str(offset))
     kb = _build_notif_kb(callback.from_user.id, lang)
     await callback.message.edit_reply_markup(reply_markup=kb)
     await callback.answer(t("notif_updated", lang))
@@ -1876,42 +1940,80 @@ async def catch_all_callbacks(callback: CallbackQuery):
 # AUTO SCHEDULE NOTIFIER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _next_school_day_idx(weekday: int) -> int:
+    # Mon..Fri -> next day, Sat/Sun -> Monday
+    return 0 if weekday >= 5 else weekday + 1
+
+
+def _build_evening_tomorrow_text(user: dict, bell_mode: str, weekday: int) -> str:
+    class_code = user.get("class_code", "")
+    if not class_code:
+        return ""
+
+    lang = user.get("lang", "ru")
+    tomorrow_idx = _next_school_day_idx(weekday)
+    day_name = (DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK)[tomorrow_idx]
+    lessons = get_lessons(class_code, tomorrow_idx)
+    if not lessons:
+        return t("evening_tomorrow_no_lessons", lang).format(day_name=day_name)
+
+    shift_data = get_shifts(bell_mode, tomorrow_idx).get(user.get("shift", 1), {})
+    lines = []
+    for lesson in lessons:
+        num = lesson["lesson_num"]
+        lesson_name = lesson["lesson_name"]
+        if lang == "ru":
+            lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
+
+        start = shift_data.get(num, {}).get("start")
+        end = shift_data.get(num, {}).get("end")
+        if start and end:
+            lines.append(f"{num}. <b>{lesson_name}</b> ({start}–{end})")
+        else:
+            lines.append(f"{num}. <b>{lesson_name}</b>")
+
+    return t("evening_tomorrow_with_lessons", lang).format(
+        day_name=day_name,
+        lessons="\n".join(lines),
+    )
+
 
 async def schedule_notifier():
     while True:
         await asyncio.sleep(60)
         try:
-            now_time = get_now_almaty()
-            weekday = get_weekday_almaty()
-
-            if weekday >= 6:
-                continue
-
+            now = datetime.now(ALMATY_TZ)
+            now_time = now.strftime("%H:%M")
+            weekday = now.weekday()
             bell_mode = get_setting("bell_mode", "standard")
-            shifts = get_shifts(bell_mode, weekday)
 
-            triggered_events = []
-            for shift_num, shift_lessons in shifts.items():
-                for lesson_num, times in shift_lessons.items():
-                    start_time = times.get("start")
-                    end_time = times.get("end")
-                    pre_lesson_time = ""
-                    if start_time:
-                        try:
-                            start_dt = datetime.strptime(start_time, "%H:%M")
-                            pre_lesson_time = (start_dt - timedelta(minutes=2)).strftime("%H:%M")
-                        except Exception:
-                            pre_lesson_time = ""
+            # (shift_num, lesson_num, event_type, times, warning_offset)
+            triggered_events: list[tuple[int, int, str, dict, int | None]] = []
+            if weekday < 6:
+                shifts = get_shifts(bell_mode, weekday)
+                for shift_num, shift_lessons in shifts.items():
+                    for lesson_num, times in shift_lessons.items():
+                        start_time = times.get("start")
+                        end_time = times.get("end")
+                        start_dt = None
+                        if start_time:
+                            try:
+                                start_dt = datetime.strptime(start_time, "%H:%M")
+                            except Exception:
+                                start_dt = None
 
-                    if now_time == start_time:
-                        triggered_events.append((shift_num, lesson_num, "start", times))
-                    if now_time == end_time:
-                        triggered_events.append((shift_num, lesson_num, "end", times))
-                    if pre_lesson_time and now_time == pre_lesson_time:
-                        triggered_events.append((shift_num, lesson_num, "warning", times))
+                        if now_time == start_time:
+                            triggered_events.append((shift_num, lesson_num, "start", times, None))
+                        if now_time == end_time:
+                            triggered_events.append((shift_num, lesson_num, "end", times, None))
+                        if start_dt:
+                            for offset in WARNING_OFFSET_OPTIONS:
+                                pre_lesson_time = (start_dt - timedelta(minutes=offset)).strftime("%H:%M")
+                                if now_time == pre_lesson_time:
+                                    triggered_events.append((shift_num, lesson_num, "warning", times, offset))
 
-            # Skip expensive DB calls when there are no notifications to send this minute.
-            if not triggered_events:
+            evening_digest_due = (now_time == EVENING_DIGEST_TIME)
+            if not triggered_events and not evening_digest_due:
                 continue
 
             all_users = get_all_users()
@@ -1928,93 +2030,134 @@ async def schedule_notifier():
 
             notif_settings = get_user_settings_bulk(
                 users_with_class_ids,
-                ["notif_start", "notif_end", "notif_warning"],
+                [
+                    "notif_start",
+                    "notif_end",
+                    "notif_warning",
+                    "notif_warning_offset",
+                    "notif_evening_tomorrow",
+                ],
             )
             aggressive_warning = (
                 get_setting("aggressive_warning", "off")
-                if any(event_type == "warning" for _, _, event_type, _ in triggered_events)
+                if any(event_type == "warning" for _, _, event_type, _, _ in triggered_events)
                 else "off"
             )
 
             # Оптимизация: кешируем уроки для каждого класса на эту итерацию
             class_lessons_cache = {}
 
-            for shift_num, lesson_num, event_type, times in triggered_events:
-                shift_users = users_by_shift.get(shift_num, [])
-                if not shift_users:
-                    continue
+            if triggered_events:
+                for shift_num, lesson_num, event_type, times, warning_offset in triggered_events:
+                    shift_users = users_by_shift.get(shift_num, [])
+                    if not shift_users:
+                        continue
 
-                sent = 0
-                for user in shift_users:
+                    sent = 0
+                    for user in shift_users:
+                        class_code = user.get("class_code")
+                        if not class_code:
+                            continue
+
+                        # Получаем уроки класса
+                        if class_code not in class_lessons_cache:
+                            class_lessons_cache[class_code] = {
+                                l["lesson_num"]: l["lesson_name"]
+                                for l in get_lessons(class_code, weekday)
+                            }
+
+                        lessons_map = class_lessons_cache[class_code]
+
+                        # Если этого урока нет в расписании класса — НЕ уведомляем
+                        if lesson_num not in lessons_map:
+                            continue
+
+                        # ── Проверка пользовательских настроек уведомлений ──
+                        uid = user["tg_id"]
+                        user_notif = notif_settings.get(uid, {})
+                        if event_type == "start" and user_notif.get("notif_start", "on") == "off":
+                            continue
+                        if event_type == "end" and user_notif.get("notif_end", "on") == "off":
+                            continue
+                        if event_type == "warning":
+                            if user_notif.get("notif_warning", "on") == "off":
+                                continue
+                            user_offset = _normalize_warning_offset(user_notif.get("notif_warning_offset"))
+                            if warning_offset != user_offset:
+                                continue
+
+                        lang = user["lang"]
+                        if event_type == "start":
+                            text = t("lesson_start", lang).format(
+                                num=lesson_num,
+                                name=lessons_map[lesson_num],
+                                start=times["start"],
+                                end=times["end"],
+                            )
+                        elif event_type == "warning":
+                            if aggressive_warning == "on":
+                                text = t("lesson_warning_aggressive", lang).format(
+                                    num=lesson_num,
+                                    name=lessons_map[lesson_num],
+                                    minutes=warning_offset,
+                                )
+                            else:
+                                text = t("lesson_warning", lang).format(
+                                    num=lesson_num,
+                                    name=lessons_map[lesson_num],
+                                    minutes=warning_offset,
+                                )
+                        else:  # end
+                            text = t("lesson_end", lang).format(num=lesson_num)
+
+                        try:
+                            platform = user.get("platform", "telegram")
+                            # Delete old notification to keep chat clean
+                            if platform == "telegram" and uid in _last_notif:
+                                try:
+                                    await bot.delete_message(uid, _last_notif[uid])
+                                except Exception:
+                                    pass  # message already deleted or too old
+
+                            if platform == "telegram":
+                                msg = await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+                                _last_notif[uid] = msg.message_id
+                            else:
+                                await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
+
+                            sent += 1
+                            if sent % 25 == 0:
+                                await asyncio.sleep(1)
+                        except Exception as e:
+                            logger.error(f"Notify error {user['tg_id']}: {e}")
+
+            if evening_digest_due:
+                evening_sent = 0
+                day_key = now.strftime("%Y-%m-%d")
+                for user in all_users:
+                    uid = user.get("tg_id")
                     class_code = user.get("class_code")
-                    if not class_code:
+                    if not uid or not class_code:
+                        continue
+                    if notif_settings.get(uid, {}).get("notif_evening_tomorrow", "off") == "off":
                         continue
 
-                    # Получаем уроки класса
-                    if class_code not in class_lessons_cache:
-                        class_lessons_cache[class_code] = {
-                            l["lesson_num"]: l["lesson_name"]
-                            for l in get_lessons(class_code, weekday)
-                        }
-
-                    lessons_map = class_lessons_cache[class_code]
-
-                    # Если этого урока нет в расписании класса — НЕ уведомляем
-                    if lesson_num not in lessons_map:
+                    dedupe_key = f"{uid}:{day_key}"
+                    if dedupe_key in _evening_digest_sent:
                         continue
 
-                    # ── Проверка пользовательских настроек уведомлений ──
-                    uid = user["tg_id"]
-                    user_notif = notif_settings.get(uid, {})
-                    if event_type == "start" and user_notif.get("notif_start", "on") == "off":
+                    text = _build_evening_tomorrow_text(user, bell_mode, weekday)
+                    if not text:
                         continue
-                    if event_type == "end" and user_notif.get("notif_end", "on") == "off":
-                        continue
-                    if event_type == "warning" and user_notif.get("notif_warning", "on") == "off":
-                        continue
-
-                    lang = user["lang"]
-                    if event_type == "start":
-                        text = t("lesson_start", lang).format(
-                            num=lesson_num,
-                            name=lessons_map[lesson_num],
-                            start=times["start"],
-                            end=times["end"],
-                        )
-                    elif event_type == "warning":
-                        if aggressive_warning == "on":
-                            text = t("lesson_warning_aggressive", lang).format(
-                                num=lesson_num,
-                                name=lessons_map[lesson_num],
-                            )
-                        else:
-                            text = t("lesson_warning", lang).format(
-                                num=lesson_num,
-                                name=lessons_map[lesson_num],
-                            )
-                    else:  # end
-                        text = t("lesson_end", lang).format(num=lesson_num)
 
                     try:
-                        platform = user.get("platform", "telegram")
-                        # Delete old notification to keep chat clean
-                        if platform == "telegram" and uid in _last_notif:
-                            try:
-                                await bot.delete_message(uid, _last_notif[uid])
-                            except Exception:
-                                pass  # message already deleted or too old
-
-                        if platform == "telegram":
-                            msg = await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
-                            _last_notif[uid] = msg.message_id
-                        else:
-                            await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
-
-                        sent += 1
-                        if sent % 25 == 0:
+                        await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
+                        _evening_digest_sent[dedupe_key] = True
+                        evening_sent += 1
+                        if evening_sent % 25 == 0:
                             await asyncio.sleep(1)
                     except Exception as e:
-                        logger.error(f"Notify error {user['tg_id']}: {e}")
+                        logger.error(f"Evening digest error {uid}: {e}")
         except Exception as e:
             logger.error(f"Scheduler error: {e}")
 
