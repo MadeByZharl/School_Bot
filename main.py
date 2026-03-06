@@ -21,9 +21,6 @@ from aiogram.types import ErrorEvent
 from typing import Callable, Dict, Any, Awaitable
 from cachetools import TTLCache
 
-import uvicorn
-from web_app import app as fastapi_app
-
 from db import (
     init_db, seed_demo_data, add_user, get_user,
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
@@ -35,7 +32,7 @@ from db import (
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
 
-from whatsapp_bot import send_msg as wa_send_msg, html_to_wa
+from wa_client import send_msg as wa_send_msg, html_to_wa
 
 async def send_to_user(bot_instance: Bot, user: dict, text: str, parse_mode=ParseMode.HTML):
     platform = user.get("platform", "telegram")
@@ -127,11 +124,11 @@ ALL_MENU_BUTTONS = frozenset().union(*(BTN(k) for k in [
 router = Router()
 
 
-spam_cache = TTLCache(maxsize=10000, ttl=0.3)
-warning_cache = TTLCache(maxsize=10000, ttl=2.0)
+spam_cache = TTLCache(maxsize=2000, ttl=0.3)
+warning_cache = TTLCache(maxsize=2000, ttl=2.0)
 
 # Stores last notification message_id per user to delete before sending new one
-_last_notif: dict[int, int] = {}
+_last_notif = TTLCache(maxsize=20000, ttl=60 * 60 * 24 * 2)
 
 class AntiSpamMiddleware(BaseMiddleware):
     async def __call__(
@@ -2024,10 +2021,7 @@ async def on_startup():
 async def main():
     dp.startup.register(on_startup)
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, log_level="info")
-    # web_server = uvicorn.Server(config)
-    
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

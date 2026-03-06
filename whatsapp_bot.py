@@ -1,43 +1,22 @@
 import os
-import re
 import requests
 from threading import Lock
-from dotenv import load_dotenv
-from whatsapp_api_client_python import API
 from cachetools import TTLCache
 
-wa_spam_cache = TTLCache(maxsize=10000, ttl=0.4)
+from wa_client import send_msg, html_to_wa, ID_INSTANCE, API_TOKEN_INSTANCE, get_client
+
+wa_spam_cache = TTLCache(maxsize=2000, ttl=0.4)
 
 # Подключаем общие модуцы
 import db
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS, LESSON_TRANSLATIONS
 
-load_dotenv()
-
-ID_INSTANCE = os.getenv("ID_INSTANCE")
-API_TOKEN_INSTANCE = os.getenv("API_TOKEN_INSTANCE")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-greenAPI = API.GreenApi(ID_INSTANCE, API_TOKEN_INSTANCE)
-
-def html_to_wa(text: str) -> str:
-    """Конвертируем базовые HTML-теги из Telegram в markdown WhatsApp"""
-    text = re.sub(r'<b>(.*?)</b>', r'*\1*', text)
-    text = re.sub(r'<i>(.*?)</i>', r'_\1_', text)
-    text = re.sub(r'<code>(.*?)</code>', r'\1', text)
-    text = re.sub(r'<tg-spoiler>(.*?)</tg-spoiler>', r'\1', text)
-    return text
 
 def t(key: str, lang: str = "ru") -> str:
     lang = lang if lang in ("ru", "kk") else "ru"
     return html_to_wa(TEXTS.get(key, {}).get(lang, key))
-
-def send_msg(wa_id: int, text: str):
-    try:
-        greenAPI.sending.sendMessage(f"{wa_id}@c.us", text)
-    except Exception as e:
-        print(f"Failed to send msg to {wa_id}: {e}")
 
 def get_main_menu_text(lang: str, role: str) -> str:
     menu = []
@@ -165,8 +144,8 @@ def handle_weekly_schedule(wa_id: int, user: dict):
     all_lines.append(f"\n_{mode_label}_")
     send_msg(wa_id, "\n".join(all_lines))
 
-# ---- STATES STORAGE (Very simple in-memory for WhatsApp) ----
-FSM_DATA = {} # wa_id: {"state": str, "data": dict}
+# ---- STATES STORAGE (auto-expires to avoid unbounded growth) ----
+FSM_DATA = TTLCache(maxsize=5000, ttl=60 * 60 * 12)  # wa_id: {"state": str, "data": dict}
 _db_init_lock = Lock()
 _db_ready = False
 
@@ -189,7 +168,7 @@ def process_message(wa_id: int, text: str):
     if text_ci in ("/logout", "выйти", "шығу"):
         db.delete_user(wa_id)
         if wa_id in FSM_DATA:
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
         msg_ru = "🚪 Вы вышли из аккаунта.\n\nНапишите любое сообщение, чтобы зарегистрироваться заново."
         msg_kk = "🚪 Сіз аккаунттан шықтыңыз.\n\nҚайта тіркелу үшін кез келген хабарлама жазыңыз."
         lang = user["lang"] if user else "ru"
@@ -234,7 +213,7 @@ def process_message(wa_id: int, text: str):
             user = db.get_user(wa_id)
             send_msg(wa_id, "🎉 " + t("registration_done", lang))
             send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
             return
         # Maybe invite code?
         code_data = db.use_invite_code(text.upper(), wa_id)
@@ -256,7 +235,7 @@ def process_message(wa_id: int, text: str):
     if fsm and fsm.get("state") == "wait_broadcast_text":
         if text_ci in ("отмена", "cancel", "болдырмау"):
             send_msg(wa_id, "🚫 " + ("Рассылка отменена." if lang == "ru" else "Рассылка тоқтатылды."))
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
             send_msg(wa_id, get_main_menu_text(lang, user["role"]))
             return
         
@@ -271,7 +250,7 @@ def process_message(wa_id: int, text: str):
             msg_text = template.format(text=text_to_send)
         else:
             send_msg(wa_id, "❌ Ошибка прав доступа.")
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
             return
             
         count = 0
@@ -302,14 +281,14 @@ def process_message(wa_id: int, text: str):
         if errors:
             res_msg += f"\n⚠️ Ошибок / Қате: {errors}"
         send_msg(wa_id, "✅ " + res_msg)
-        del FSM_DATA[wa_id]
+        FSM_DATA.pop(wa_id, None)
         send_msg(wa_id, get_main_menu_text(lang, user["role"]))
         return
 
     if fsm and fsm.get("state") == "edit_schedule_class":
         if text_ci in ("отмена", "cancel", "болдырмау"):
             send_msg(wa_id, "🚫 " + ("Отменено." if lang == "ru" else "Тоқтатылды."))
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
             send_msg(wa_id, get_main_menu_text(lang, user["role"]))
             return
             
@@ -327,7 +306,7 @@ def process_message(wa_id: int, text: str):
     if fsm and fsm.get("state") == "edit_schedule_day":
         if text_ci in ("отмена", "cancel", "болдырмау"):
             send_msg(wa_id, "🚫 " + ("Отменено." if lang == "ru" else "Тоқтатылды."))
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
             send_msg(wa_id, get_main_menu_text(lang, user["role"]))
             return
             
@@ -362,7 +341,7 @@ def process_message(wa_id: int, text: str):
     if fsm and fsm.get("state") == "edit_schedule_text":
         if text_ci in ("отмена", "cancel", "болдырмау"):
             send_msg(wa_id, "🚫 " + ("Отменено." if lang == "ru" else "Тоқтатылды."))
-            del FSM_DATA[wa_id]
+            FSM_DATA.pop(wa_id, None)
             send_msg(wa_id, get_main_menu_text(lang, user["role"]))
             return
             
@@ -384,7 +363,7 @@ def process_message(wa_id: int, text: str):
             formatted_schedule += f"{i}. {lesson}\n"
             
         send_msg(wa_id, t("edit_schedule_done", lang))
-        del FSM_DATA[wa_id]
+        FSM_DATA.pop(wa_id, None)
         send_msg(wa_id, get_main_menu_text(lang, user["role"]))
         
         recipients = db.get_users_by_class(class_code)
@@ -513,4 +492,4 @@ if __name__ == '__main__':
         ensure_db_initialized()
         print("🟢 WhatsApp бот запущен (Long Polling) ...")
         # clear backlog
-        greenAPI.webhooks.startReceivingNotifications(webhook_handler)
+        get_client().webhooks.startReceivingNotifications(webhook_handler)
