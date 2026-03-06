@@ -481,13 +481,14 @@ def webhook_handler(typeWebhook, body):
             if not text:
                 send_msg(wa_id, "Пожалуйста, отправьте текстовое сообщение.\nМәтіндік хабарлама жіберіңіз.")
                 return
-                if wa_id in wa_spam_cache:
-                    print(f"SPAM BLOCK: WA {wa_id} sent message too fast.")
-                    return
-                wa_spam_cache[wa_id] = True
-                
-                print(f"Received WA msg from {wa_id}: {text}")
-                process_message(wa_id, text)
+
+            if wa_id in wa_spam_cache:
+                print(f"SPAM BLOCK: WA {wa_id} sent message too fast.")
+                return
+            wa_spam_cache[wa_id] = True
+
+            print(f"Received WA msg from {wa_id}: {text}")
+            process_message(wa_id, text)
         except Exception as e:
             print("Error processing webhook:", e)
 

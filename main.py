@@ -979,6 +979,10 @@ async def lesson_timer(callback: CallbackQuery, state: FSMContext):
 async def cmd_help(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user = get_user(callback.from_user.id)
+    if not user:
+        await callback.message.edit_text("Введите /start для регистрации.")
+        await callback.answer()
+        return
     lang = user["lang"] if user else "ru"
     await callback.message.edit_text(t("help_text", lang), parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
 
@@ -1468,7 +1472,7 @@ async def gen_code_shift(callback: CallbackQuery, state: FSMContext):
 async def btn_my_codes(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user = get_user(callback.from_user.id)
-    if not user or user["role"] != "teacher":
+    if not user or (user["role"] not in ("teacher", "zavuch") and callback.from_user.id != ADMIN_ID):
         lang = user["lang"] if user else "ru"
         await callback.answer(t("no_permission", lang), show_alert=True)
         return

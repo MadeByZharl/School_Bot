@@ -22,7 +22,10 @@ def get_current_admin(request: Request):
         return None
     with db.get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT code FROM invite_codes WHERE code=%s AND role='zavuch'", (auth_code,))
+            cursor.execute(
+                "SELECT code FROM invite_codes WHERE code=%s AND role='zavuch' AND is_active=1",
+                (auth_code,),
+            )
             if cursor.fetchone():
                 return auth_code
     return None
@@ -32,7 +35,10 @@ async def api_login(response: Response, payload: dict = Body(...)):
     code_text = payload.get("code", "").strip().upper()
     with db.get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM invite_codes WHERE code=%s AND role='zavuch'", (code_text,))
+            cursor.execute(
+                "SELECT * FROM invite_codes WHERE code=%s AND role='zavuch' AND is_active=1",
+                (code_text,),
+            )
             if cursor.fetchone():
                 res = JSONResponse({"success": True, "token": code_text})
                 res.set_cookie("zavuch_auth", code_text, max_age=86400*30)
@@ -74,7 +80,7 @@ async def api_create_code(request: Request, payload: dict = Body(...)):
         role=role, 
         class_code=class_code if class_code else None, 
         shift=shift, 
-        creator_id=0
+        created_by=0
     )
     return {"success": True}
 

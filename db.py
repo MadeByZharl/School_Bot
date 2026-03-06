@@ -209,14 +209,18 @@ def use_invite_code(code: str, tg_id: int) -> dict | None:
             
             if not row["reusable"]:
                 cursor.execute(
-                    "UPDATE invite_codes SET use_count = use_count + 1, is_active = 0 WHERE code = %s",
+                    "UPDATE invite_codes SET use_count = use_count + 1, is_active = 0 WHERE code = %s AND is_active = 1",
                     (code,),
                 )
+                if cursor.rowcount == 0:
+                    return None
             else:
                 cursor.execute(
-                    "UPDATE invite_codes SET use_count = use_count + 1 WHERE code = %s",
+                    "UPDATE invite_codes SET use_count = use_count + 1 WHERE code = %s AND is_active = 1",
                     (code,),
                 )
+                if cursor.rowcount == 0:
+                    return None
             return row
 
 
@@ -463,4 +467,3 @@ def get_full_backup() -> dict:
                 cursor.execute(f"SELECT * FROM {table}")
                 backup[table] = cursor.fetchall()
     return backup
-
