@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+from threading import Lock
 from dotenv import load_dotenv
 from whatsapp_api_client_python import API
 from cachetools import TTLCache
@@ -166,9 +167,22 @@ def handle_weekly_schedule(wa_id: int, user: dict):
 
 # ---- STATES STORAGE (Very simple in-memory for WhatsApp) ----
 FSM_DATA = {} # wa_id: {"state": str, "data": dict}
+_db_init_lock = Lock()
+_db_ready = False
+
+
+def ensure_db_initialized():
+    global _db_ready
+    if _db_ready:
+        return
+    with _db_init_lock:
+        if _db_ready:
+            return
+        db.init_db()
+        _db_ready = True
 
 def process_message(wa_id: int, text: str):
-    db.init_db()
+    ensure_db_initialized()
     user = db.get_user(wa_id)
     text_ci = text.strip().lower()
 
@@ -496,6 +510,7 @@ if __name__ == '__main__':
     if not ID_INSTANCE or not API_TOKEN_INSTANCE:
         print("ОШИБКА: Заполните ID_INSTANCE и API_TOKEN_INSTANCE в .env")
     else:
+        ensure_db_initialized()
         print("🟢 WhatsApp бот запущен (Long Polling) ...")
         # clear backlog
         greenAPI.webhooks.startReceivingNotifications(webhook_handler)

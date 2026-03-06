@@ -161,6 +161,33 @@ def get_user_setting(tg_id: int, key: str, default: str = "on") -> str:
             return row["setting_value"] if row else default
 
 
+def get_user_settings_bulk(tg_ids: list[int], keys: list[str]) -> dict[int, dict[str, str]]:
+    if not tg_ids or not keys:
+        return {}
+
+    # Remove duplicates while preserving order to keep query size compact.
+    uniq_ids = list(dict.fromkeys(tg_ids))
+    uniq_keys = list(dict.fromkeys(keys))
+
+    id_placeholders = ", ".join(["%s"] * len(uniq_ids))
+    key_placeholders = ", ".join(["%s"] * len(uniq_keys))
+    query = (
+        f"SELECT tg_id, setting_key, setting_value FROM user_settings "
+        f"WHERE tg_id IN ({id_placeholders}) AND setting_key IN ({key_placeholders})"
+    )
+
+    result: dict[int, dict[str, str]] = {}
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, tuple(uniq_ids + uniq_keys))
+            for row in cursor.fetchall():
+                uid = row["tg_id"]
+                if uid not in result:
+                    result[uid] = {}
+                result[uid][row["setting_key"]] = row["setting_value"]
+    return result
+
+
 def set_user_setting(tg_id: int, key: str, value: str):
     with get_connection() as conn:
         with conn.cursor() as cursor:

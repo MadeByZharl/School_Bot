@@ -30,7 +30,7 @@ from db import (
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
     format_class, update_user_lang, get_bot_stats, get_full_backup,
-    get_user_setting, set_user_setting,
+    get_user_setting, get_user_settings_bulk, set_user_setting,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS
@@ -800,9 +800,10 @@ NOTIF_KEYS = [
 
 def _build_notif_kb(tg_id: int, lang: str) -> InlineKeyboardMarkup:
     """Build the notification settings keyboard with current toggle states."""
+    settings = get_user_settings_bulk([tg_id], [key for key, _ in NOTIF_KEYS]).get(tg_id, {})
     kb_rows = []
     for key, label_key in NOTIF_KEYS:
-        current = get_user_setting(tg_id, key, "on")
+        current = settings.get(key, "on")
         icon = "✅" if current == "on" else "❌"
         kb_rows.append([InlineKeyboardButton(
             text=f"{icon} {t(label_key, lang)}",
@@ -1814,103 +1815,133 @@ async def schedule_notifier():
                 continue
 
             bell_mode = get_setting("bell_mode", "standard")
-            all_users = get_all_users()
             shifts = get_shifts(bell_mode, weekday)
+
+            triggered_events = []
+            for shift_num, shift_lessons in shifts.items():
+                for lesson_num, times in shift_lessons.items():
+                    start_time = times.get("start")
+                    end_time = times.get("end")
+                    pre_lesson_time = ""
+                    if start_time:
+                        try:
+                            start_dt = datetime.strptime(start_time, "%H:%M")
+                            pre_lesson_time = (start_dt - timedelta(minutes=2)).strftime("%H:%M")
+                        except Exception:
+                            pre_lesson_time = ""
+
+                    if now_time == start_time:
+                        triggered_events.append((shift_num, lesson_num, "start", times))
+                    if now_time == end_time:
+                        triggered_events.append((shift_num, lesson_num, "end", times))
+                    if pre_lesson_time and now_time == pre_lesson_time:
+                        triggered_events.append((shift_num, lesson_num, "warning", times))
+
+            # Skip expensive DB calls when there are no notifications to send this minute.
+            if not triggered_events:
+                continue
+
+            all_users = get_all_users()
+            if not all_users:
+                continue
+
+            users_by_shift: dict[int, list[dict]] = {}
+            users_with_class_ids: list[int] = []
+            for user in all_users:
+                shift_num = user.get("shift")
+                users_by_shift.setdefault(shift_num, []).append(user)
+                if user.get("class_code"):
+                    users_with_class_ids.append(user["tg_id"])
+
+            notif_settings = get_user_settings_bulk(
+                users_with_class_ids,
+                ["notif_start", "notif_end", "notif_warning"],
+            )
+            aggressive_warning = (
+                get_setting("aggressive_warning", "off")
+                if any(event_type == "warning" for _, _, event_type, _ in triggered_events)
+                else "off"
+            )
 
             # Оптимизация: кешируем уроки для каждого класса на эту итерацию
             class_lessons_cache = {}
 
-            for shift_num, shift_lessons in shifts.items():
-                shift_users = [u for u in all_users if u["shift"] == shift_num]
+            for shift_num, lesson_num, event_type, times in triggered_events:
+                shift_users = users_by_shift.get(shift_num, [])
                 if not shift_users:
                     continue
 
-                for lesson_num, times in shift_lessons.items():
-                    try:
-                        start_dt = datetime.strptime(times["start"], "%H:%M")
-                        pre_lesson_time = (start_dt - timedelta(minutes=2)).strftime("%H:%M")
-                    except Exception:
-                        pre_lesson_time = ""
-
-                    is_start = now_time == times["start"]
-                    is_end = now_time == times["end"]
-                    is_warning = now_time == pre_lesson_time
-
-                    if not is_start and not is_end and not is_warning:
+                sent = 0
+                for user in shift_users:
+                    class_code = user.get("class_code")
+                    if not class_code:
                         continue
 
-                    sent = 0
-                    for user in shift_users:
-                        class_code = user.get("class_code")
-                        if not class_code:
-                            continue
+                    # Получаем уроки класса
+                    if class_code not in class_lessons_cache:
+                        class_lessons_cache[class_code] = {
+                            l["lesson_num"]: l["lesson_name"]
+                            for l in get_lessons(class_code, weekday)
+                        }
 
-                        # Получаем уроки класса
-                        if class_code not in class_lessons_cache:
-                            class_lessons_cache[class_code] = {
-                                l["lesson_num"]: l["lesson_name"]
-                                for l in get_lessons(class_code, weekday)
-                            }
-                        
-                        lessons_map = class_lessons_cache[class_code]
+                    lessons_map = class_lessons_cache[class_code]
 
-                        # Если этого урока нет в расписании класса — НЕ уведомляем
-                        if lesson_num not in lessons_map:
-                            continue
+                    # Если этого урока нет в расписании класса — НЕ уведомляем
+                    if lesson_num not in lessons_map:
+                        continue
 
-                        # ── Проверка пользовательских настроек уведомлений ──
-                        uid = user["tg_id"]
-                        if is_start and get_user_setting(uid, "notif_start", "on") == "off":
-                            continue
-                        if is_end and get_user_setting(uid, "notif_end", "on") == "off":
-                            continue
-                        if is_warning and get_user_setting(uid, "notif_warning", "on") == "off":
-                            continue
+                    # ── Проверка пользовательских настроек уведомлений ──
+                    uid = user["tg_id"]
+                    user_notif = notif_settings.get(uid, {})
+                    if event_type == "start" and user_notif.get("notif_start", "on") == "off":
+                        continue
+                    if event_type == "end" and user_notif.get("notif_end", "on") == "off":
+                        continue
+                    if event_type == "warning" and user_notif.get("notif_warning", "on") == "off":
+                        continue
 
-                        lang = user["lang"]
-                        if is_start:
-                            text = t("lesson_start", lang).format(
+                    lang = user["lang"]
+                    if event_type == "start":
+                        text = t("lesson_start", lang).format(
+                            num=lesson_num,
+                            name=lessons_map[lesson_num],
+                            start=times["start"],
+                            end=times["end"],
+                        )
+                    elif event_type == "warning":
+                        if aggressive_warning == "on":
+                            text = t("lesson_warning_aggressive", lang).format(
                                 num=lesson_num,
                                 name=lessons_map[lesson_num],
-                                start=times["start"],
-                                end=times["end"],
                             )
-                        elif is_warning:
-                            agg_warn = get_setting("aggressive_warning", "off")
-                            if agg_warn == "on":
-                                text = t("lesson_warning_aggressive", lang).format(
-                                    num=lesson_num,
-                                    name=lessons_map[lesson_num],
-                                )
-                            else:
-                                text = t("lesson_warning", lang).format(
-                                    num=lesson_num,
-                                    name=lessons_map[lesson_num],
-                                )
-                        else:  # is_end
-                            text = t("lesson_end", lang).format(num=lesson_num)
+                        else:
+                            text = t("lesson_warning", lang).format(
+                                num=lesson_num,
+                                name=lessons_map[lesson_num],
+                            )
+                    else:  # end
+                        text = t("lesson_end", lang).format(num=lesson_num)
 
-                        try:
-                            uid = user["tg_id"]
-                            platform = user.get("platform", "telegram")
-                            # Delete old notification to keep chat clean
-                            if platform == "telegram" and uid in _last_notif:
-                                try:
-                                    await bot.delete_message(uid, _last_notif[uid])
-                                except Exception:
-                                    pass  # message already deleted or too old
-                            
-                            if platform == "telegram":
-                                msg = await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
-                                _last_notif[uid] = msg.message_id
-                            else:
-                                await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
-                            
-                            sent += 1
-                            if sent % 25 == 0:
-                                await asyncio.sleep(1)
-                        except Exception as e:
-                            logger.error(f"Notify error {user['tg_id']}: {e}")
+                    try:
+                        platform = user.get("platform", "telegram")
+                        # Delete old notification to keep chat clean
+                        if platform == "telegram" and uid in _last_notif:
+                            try:
+                                await bot.delete_message(uid, _last_notif[uid])
+                            except Exception:
+                                pass  # message already deleted or too old
+
+                        if platform == "telegram":
+                            msg = await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+                            _last_notif[uid] = msg.message_id
+                        else:
+                            await send_to_user(bot, user, text, parse_mode=ParseMode.HTML)
+
+                        sent += 1
+                        if sent % 25 == 0:
+                            await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.error(f"Notify error {user['tg_id']}: {e}")
         except Exception as e:
             logger.error(f"Scheduler error: {e}")
 
