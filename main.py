@@ -30,7 +30,7 @@ from db import (
     get_user_setting, get_user_settings_bulk, set_user_setting,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
-from translations import TEXTS
+from translations import TEXTS, LESSON_TRANSLATIONS
 
 from wa_client import send_msg as wa_send_msg, html_to_wa
 
@@ -129,6 +129,8 @@ warning_cache = TTLCache(maxsize=2000, ttl=2.0)
 
 # Stores last notification message_id per user to delete before sending new one
 _last_notif = TTLCache(maxsize=20000, ttl=60 * 60 * 24 * 2)
+# Active opened daily schedule messages for minute-by-minute refresh.
+_live_schedule_views = TTLCache(maxsize=5000, ttl=60 * 90)
 
 class AntiSpamMiddleware(BaseMiddleware):
     async def __call__(
@@ -201,6 +203,16 @@ def t(key: str, lang: str = "ru") -> str:
     return TEXTS.get(key, {}).get(lang, TEXTS.get(key, {}).get("ru", key))
 
 
+def hhmm_to_minutes(value: str) -> int | None:
+    if not value or value == "—":
+        return None
+    try:
+        h, m = map(int, value.split(":"))
+    except Exception:
+        return None
+    return h * 60 + m
+
+
 def has_bad_words(text: str) -> bool:
     lower = text.lower()
     return any(w in lower for w in BAD_WORDS)
@@ -222,7 +234,6 @@ def get_main_menu_inline(lang: str = "ru", role: str = "student", is_admin: bool
     rows = [
         [
             InlineKeyboardButton(text=t("menu_schedule", lang), callback_data="main_menu_schedule"),
-            InlineKeyboardButton(text="⏰ " + ("Таймер" if lang == "ru" else "Таймер"), callback_data="main_menu_timer"),
         ],
         [
             InlineKeyboardButton(text=t("menu_profile", lang), callback_data="main_menu_profile"),
@@ -594,23 +605,25 @@ async def process_name(message: Message, state: FSMContext):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.callback_query(F.data == "main_menu_schedule")
-async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    user = get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Not registered", show_alert=True)
-        return
+def build_daily_schedule_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 " + ("Обновить" if lang == "ru" else "Жаңарту"), callback_data="main_menu_schedule_refresh")],
+        [InlineKeyboardButton(text="📅 Вся неделя" if lang == "ru" else "📅 Бүкіл апта", callback_data="main_menu_schedule_week")],
+        [InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_profile")],
+    ])
+
+
+def build_daily_schedule_view(user: dict) -> tuple[str, InlineKeyboardMarkup, bool]:
     lang = user["lang"]
     bell_mode = get_setting("bell_mode", "standard")
     weekday = get_weekday_almaty()
     now_time = get_now_almaty()
+    now_minutes = hhmm_to_minutes(now_time)
     show_day = weekday
     is_tomorrow = False
 
-    # Уроки по расписанию заканчиваются примерно к 15:00, 
-    # поэтому показываем расписание следующего дня после 15:00
-    if now_time >= "15:00":
+    # Показываем завтра после ~15:00.
+    if (now_minutes or 0) >= 15 * 60:
         if weekday >= 4:      # Пятница, Суббота, Воскресенье → Понедельник
             show_day = 0
         else:
@@ -620,13 +633,13 @@ async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
     day_names = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
     day_name = day_names[show_day]
     lessons = get_lessons(user.get("class_code", ""), show_day)
-    
-    # Теперь получаем шифты именно для того дня, который будем показывать
     shifts = get_shifts(bell_mode, show_day)
     shift_data = shifts.get(user["shift"], {})
+    kb = build_daily_schedule_keyboard(lang)
+
     if not lessons:
-        await callback.message.edit_text(t("no_lessons", lang), parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
-        return
+        return t("no_lessons", lang), kb, False
+
     lines = [f"📆 <b>{day_name}</b>\n"]
     for ls in lessons:
         num = ls["lesson_num"]
@@ -634,36 +647,73 @@ async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
         start = time_info.get("start", "—")
         end = time_info.get("end", "—")
         connector = "└" if ls == lessons[-1] else "├"
-        
+
         lesson_name = ls["lesson_name"]
         if lang == "ru":
-            from translations import LESSON_TRANSLATIONS
             lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
 
-        is_finished = (not is_tomorrow) and (end != "—") and (now_time > end)
-        
+        start_minutes = hhmm_to_minutes(start)
+        end_minutes = hhmm_to_minutes(end)
+        is_finished = (
+            (not is_tomorrow)
+            and (now_minutes is not None)
+            and (end_minutes is not None)
+            and (now_minutes >= end_minutes)
+        )
+        is_current = (
+            (not is_tomorrow)
+            and (now_minutes is not None)
+            and (start_minutes is not None)
+            and (end_minutes is not None)
+            and (start_minutes <= now_minutes < end_minutes)
+        )
+
         if is_finished:
             lines.append(f"{connector} {num}. <s><b>{lesson_name}</b>  ({start}–{end})</s>")
+        elif is_current:
+            mins_left = max(0, end_minutes - now_minutes)
+            current_note = (
+                f" 🔔 Сейчас урок · до конца {mins_left} мин"
+                if lang == "ru"
+                else f" 🔔 Қазір сабақ · аяқталуына {mins_left} мин"
+            )
+            lines.append(f"{connector} {num}. <u><b>{lesson_name}</b></u>  ({start}–{end}){current_note}")
         else:
             lines.append(f"{connector} {num}. <b>{lesson_name}</b>  ({start}–{end})")
+
     mode_label = t(BELL_MODE_LABEL.get(bell_mode, "bell_standard"), lang)
     lines.append(f"\n<i>{mode_label}</i>")
-    
-    header_key = "schedule_tomorrow" if is_tomorrow else "schedule_today"
-    # Fallback keys since old ones might not exist directly
+
     header_text_ru = "📅 Расписание на завтра:\n\n{lessons}" if is_tomorrow else "📅 Расписание на сегодня:\n\n{lessons}"
     header_text_kk = "📅 Ертеңгі сабақ кестесі:\n\n{lessons}" if is_tomorrow else "📅 Бүгінгі сабақ кестесі:\n\n{lessons}"
-    
     text_template = header_text_ru if lang == "ru" else header_text_kk
     text = text_template.format(lessons="\n".join(lines))
-    
-    kb_rows = [
-        [InlineKeyboardButton(text="📅 Вся неделя" if lang == "ru" else "📅 Бүкіл апта", callback_data="main_menu_schedule_week")],
-    ]
-    kb_rows.append([InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_profile")])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    
+
+    # Live-refresh is useful only for today's schedule.
+    should_live_refresh = (not is_tomorrow) and (weekday < 6)
+    return text, kb, should_live_refresh
+
+
+@router.callback_query(F.data.in_({"main_menu_schedule", "main_menu_schedule_refresh"}))
+async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+    text, kb, should_live_refresh = build_daily_schedule_view(user)
     await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+    uid = callback.from_user.id
+    if should_live_refresh and callback.message:
+        _live_schedule_views[uid] = {
+            "chat_id": callback.message.chat.id,
+            "message_id": callback.message.message_id,
+        }
+    else:
+        _live_schedule_views.pop(uid, None)
+
+    await callback.answer()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -845,7 +895,7 @@ async def toggle_notif(callback: CallbackQuery):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@router.callback_query(F.data == "main_menu_schedule_week")
+@router.callback_query(F.data.in_({"main_menu_schedule_week", "main_menu_schedule_week_refresh"}))
 async def schedule_week(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user = get_user(callback.from_user.id)
@@ -856,6 +906,8 @@ async def schedule_week(callback: CallbackQuery, state: FSMContext):
     class_code = user.get("class_code", "")
     day_names = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
     bell_mode = get_setting("bell_mode", "standard")
+    now_minutes = hhmm_to_minutes(get_now_almaty())
+    weekday = get_weekday_almaty()
 
     lines = [t("schedule_week_title", lang)]
     for day_idx in range(6):  # Mon-Sat
@@ -878,9 +930,33 @@ async def schedule_week(callback: CallbackQuery, state: FSMContext):
                 lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
 
             time_str = f"  <i>{start}–{end}</i>" if start else ""
-            lines.append(f"   {num}. {lesson_name}{time_str}")
+            start_minutes = hhmm_to_minutes(start)
+            end_minutes = hhmm_to_minutes(end)
+            is_finished = (
+                (day_idx < weekday)
+                or (
+                    day_idx == weekday
+                    and now_minutes is not None
+                    and end_minutes is not None
+                    and now_minutes >= end_minutes
+                )
+            )
+            is_current = (
+                day_idx == weekday
+                and now_minutes is not None
+                and start_minutes is not None
+                and end_minutes is not None
+                and start_minutes <= now_minutes < end_minutes
+            )
+            if is_finished:
+                lines.append(f"   <s>{num}. {lesson_name}{time_str}</s>")
+            elif is_current:
+                lines.append(f"   <u><b>{num}. {lesson_name}</b></u>{time_str} ⏳")
+            else:
+                lines.append(f"   {num}. {lesson_name}{time_str}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 " + ("Обновить" if lang == "ru" else "Жаңарту"), callback_data="main_menu_schedule_week_refresh")],
         [InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_schedule")],
     ])
     await callback.message.edit_text("\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -1943,6 +2019,53 @@ async def schedule_notifier():
             logger.error(f"Scheduler error: {e}")
 
 
+async def live_schedule_updater():
+    """Refresh opened daily schedule cards once per minute."""
+    while True:
+        await asyncio.sleep(60)
+        if not _live_schedule_views:
+            continue
+
+        try:
+            processed = 0
+            for uid, view in list(_live_schedule_views.items()):
+                user = get_user(uid)
+                if not user:
+                    _live_schedule_views.pop(uid, None)
+                    continue
+
+                text, kb, should_live_refresh = build_daily_schedule_view(user)
+                if not should_live_refresh:
+                    _live_schedule_views.pop(uid, None)
+                    continue
+
+                try:
+                    await bot.edit_message_text(
+                        chat_id=view["chat_id"],
+                        message_id=view["message_id"],
+                        text=text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=kb,
+                    )
+                except TelegramBadRequest as e:
+                    err_text = str(e).lower()
+                    if "message is not modified" in err_text:
+                        pass
+                    elif "message to edit not found" in err_text or "message can't be edited" in err_text:
+                        _live_schedule_views.pop(uid, None)
+                    else:
+                        logger.error(f"Live schedule update error {uid}: {e}")
+                except Exception as e:
+                    logger.error(f"Live schedule update error {uid}: {e}")
+                    _live_schedule_views.pop(uid, None)
+
+                processed += 1
+                if processed % 20 == 0:
+                    await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"Live schedule updater loop error: {e}")
+
+
 async def auto_backup_task():
     """Daily automated backup sent to ADMIN_ID."""
     import json
@@ -2014,6 +2137,7 @@ async def on_startup():
     init_db()
     await set_bot_commands(bot)
     asyncio.create_task(schedule_notifier())
+    asyncio.create_task(live_schedule_updater())
     asyncio.create_task(auto_backup_task())
     logger.info("Bot started, commands set, scheduler running.")
 

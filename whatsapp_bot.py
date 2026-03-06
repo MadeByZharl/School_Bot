@@ -18,6 +18,16 @@ def t(key: str, lang: str = "ru") -> str:
     lang = lang if lang in ("ru", "kk") else "ru"
     return html_to_wa(TEXTS.get(key, {}).get(lang, key))
 
+
+def hhmm_to_minutes(value: str) -> int | None:
+    if not value or value == "—":
+        return None
+    try:
+        h, m = map(int, value.split(":"))
+    except Exception:
+        return None
+    return h * 60 + m
+
 def get_main_menu_text(lang: str, role: str) -> str:
     menu = []
     menu.append("1️⃣ " + t("menu_schedule", lang))
@@ -46,6 +56,7 @@ def handle_schedule(wa_id: int, user: dict):
     bell_mode = db.get_setting("bell_mode", "standard")
     weekday = get_weekday_almaty()
     now_time = get_now_almaty()
+    now_minutes = hhmm_to_minutes(now_time)
     show_day = weekday
     is_tomorrow = False
 
@@ -61,7 +72,7 @@ def handle_schedule(wa_id: int, user: dict):
             if times["end"] > last_end:
                 last_end = times["end"]
                 
-        if now_time > last_end:
+        if now_time >= last_end:
             show_day = (weekday + 1) % 6
             is_tomorrow = True
 
@@ -87,9 +98,25 @@ def handle_schedule(wa_id: int, user: dict):
         if lang == "ru":
             lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
 
-        is_finished = (not is_tomorrow) and (end != "—") and (now_time > end)
+        start_minutes = hhmm_to_minutes(start)
+        end_minutes = hhmm_to_minutes(end)
+        is_finished = (
+            (not is_tomorrow)
+            and (now_minutes is not None)
+            and (end_minutes is not None)
+            and (now_minutes >= end_minutes)
+        )
+        is_current = (
+            (not is_tomorrow)
+            and (now_minutes is not None)
+            and (start_minutes is not None)
+            and (end_minutes is not None)
+            and (start_minutes <= now_minutes < end_minutes)
+        )
         if is_finished:
             lines.append(f"{connector} {num}. ~*{lesson_name}*  ({start}–{end})~")
+        elif is_current:
+            lines.append(f"{connector} {num}. ➤ *{lesson_name}*  ({start}–{end})")
         else:
             lines.append(f"{connector} {num}. *{lesson_name}*  ({start}–{end})")
         
@@ -109,6 +136,7 @@ def handle_weekly_schedule(wa_id: int, user: dict):
     all_lines = [header_text + "\n"]
     has_any_lessons = False
     now_time = get_now_almaty()
+    now_minutes = hhmm_to_minutes(now_time)
     weekday = get_weekday_almaty()
     
     for day_idx in range(6):
@@ -130,9 +158,28 @@ def handle_weekly_schedule(wa_id: int, user: dict):
             if lang == "ru":
                 lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
                 
-            is_finished = (day_idx < weekday) or ((day_idx == weekday) and (end != "—") and (now_time > end))
+            start_minutes = hhmm_to_minutes(start)
+            end_minutes = hhmm_to_minutes(end)
+            is_finished = (
+                (day_idx < weekday)
+                or (
+                    day_idx == weekday
+                    and now_minutes is not None
+                    and end_minutes is not None
+                    and now_minutes >= end_minutes
+                )
+            )
+            is_current = (
+                day_idx == weekday
+                and now_minutes is not None
+                and start_minutes is not None
+                and end_minutes is not None
+                and (start_minutes <= now_minutes < end_minutes)
+            )
             if is_finished:
                 all_lines.append(f"~{num}. {lesson_name} ({start}–{end})~")
+            elif is_current:
+                all_lines.append(f"➤ *{num}. {lesson_name} ({start}–{end})*")
             else:
                 all_lines.append(f"{num}. {lesson_name} ({start}–{end})")
             
