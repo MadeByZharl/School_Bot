@@ -27,7 +27,7 @@ from db import (
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
     format_class, update_user_lang, get_bot_stats, get_full_backup,
-    get_user_setting, get_user_settings_bulk, set_user_setting,
+    get_user_setting, get_user_settings_bulk, set_user_setting, get_class_subjects,
 )
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS, LESSON_TRANSLATIONS
@@ -213,6 +213,123 @@ def hhmm_to_minutes(value: str) -> int | None:
     except Exception:
         return None
     return h * 60 + m
+
+
+def normalize_subject_name(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def display_lesson_name(lesson_name: str, lang: str) -> str:
+    if lang == "ru":
+        return LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
+    return lesson_name
+
+
+def resolve_subject_query(class_code: str, query: str, lang: str) -> str | None:
+    normalized_query = normalize_subject_name(query)
+    if not normalized_query:
+        return None
+
+    subjects = get_class_subjects(class_code)
+    exact_matches = []
+    partial_matches = []
+
+    for subject in subjects:
+        variants = {normalize_subject_name(subject)}
+        translated = display_lesson_name(subject, lang)
+        variants.add(normalize_subject_name(translated))
+
+        if normalized_query in variants:
+            exact_matches.append(subject)
+        elif any(normalized_query in variant for variant in variants):
+            partial_matches.append(subject)
+
+    if exact_matches:
+        return exact_matches[0]
+    if len(partial_matches) == 1:
+        return partial_matches[0]
+    return None
+
+
+SUBJECTS_PER_PAGE = 8
+
+
+def build_subject_picker_keyboard(subjects: list[str], lang: str, page: int = 0) -> InlineKeyboardMarkup:
+    page = max(0, page)
+    start = page * SUBJECTS_PER_PAGE
+    end = start + SUBJECTS_PER_PAGE
+    page_subjects = subjects[start:end]
+
+    rows = []
+    for idx, subject in enumerate(page_subjects, start=start):
+        rows.append([
+            InlineKeyboardButton(
+                text="📘 " + display_lesson_name(subject, lang),
+                callback_data=f"subject_pick_{idx}",
+            )
+        ])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️", callback_data=f"subject_page_{page - 1}"))
+    if end < len(subjects):
+        nav_row.append(InlineKeyboardButton(text="➡️", callback_data=f"subject_page_{page + 1}"))
+    if nav_row:
+        rows.append(nav_row)
+
+    rows.append([
+        InlineKeyboardButton(
+            text="🔙 " + ("К расписанию" if lang == "ru" else "Кестеге"),
+            callback_data="main_menu_schedule",
+        )
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_subject_week_text(user: dict, subject_name: str) -> str:
+    lang = user.get("lang", "ru")
+    class_code = user.get("class_code", "")
+    bell_mode = get_setting("bell_mode", "standard")
+    day_names = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
+    display_name = display_lesson_name(subject_name, lang)
+
+    lines = [
+        t("subject_week_title", lang).format(subject=display_name),
+        t("subject_week_class_line", lang).format(class_code=format_class(class_code)),
+        "",
+    ]
+
+    total = 0
+    for day_idx in range(6):
+        lessons = get_lessons(class_code, day_idx)
+        day_matches = [lesson for lesson in lessons if lesson["lesson_name"] == subject_name]
+        if not day_matches:
+            continue
+
+        shifts = get_shifts(bell_mode, day_idx).get(user.get("shift", 1), {})
+        lines.append(f"📆 <b>{day_names[day_idx]}</b>")
+        for lesson in day_matches:
+            total += 1
+            lesson_num = lesson["lesson_num"]
+            time_info = shifts.get(lesson_num, {})
+            start = time_info.get("start")
+            end = time_info.get("end")
+            time_suffix = f"  <i>{start}–{end}</i>" if start and end else ""
+            lines.append(f"{lesson_num}. <b>{display_name}</b>{time_suffix}")
+        lines.append("")
+
+    if total == 0:
+        return t("subject_week_empty", lang).format(subject=display_name)
+
+    lines.append(t("subject_week_total", lang).format(count=total))
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+def build_subject_week_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📘 " + ("Другой предмет" if lang == "ru" else "Басқа пән"), callback_data="main_menu_schedule_subjects")],
+        [InlineKeyboardButton(text="🔙 " + ("К расписанию" if lang == "ru" else "Кестеге"), callback_data="main_menu_schedule")],
+    ])
 
 
 def has_bad_words(text: str) -> bool:
@@ -611,6 +728,7 @@ def build_daily_schedule_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 " + ("Обновить" if lang == "ru" else "Жаңарту"), callback_data="main_menu_schedule_refresh")],
         [InlineKeyboardButton(text="📅 Вся неделя" if lang == "ru" else "📅 Бүкіл апта", callback_data="main_menu_schedule_week")],
+        [InlineKeyboardButton(text="📘 " + ("Предметы" if lang == "ru" else "Пәндер"), callback_data="main_menu_schedule_subjects")],
         [InlineKeyboardButton(text="🔙 " + ("Назад" if lang == "ru" else "Артқа"), callback_data="main_menu_profile")],
     ])
 
@@ -715,6 +833,116 @@ async def cmd_schedule(callback: CallbackQuery, state: FSMContext):
     else:
         _live_schedule_views.pop(uid, None)
 
+    await callback.answer()
+
+
+@router.message(Command("subject"))
+async def cmd_subject(message: Message, state: FSMContext, command: CommandObject):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    if not user:
+        await message.answer(t("not_registered", "ru"))
+        return
+
+    lang = user.get("lang", "ru")
+    class_code = user.get("class_code", "")
+    subjects = get_class_subjects(class_code)
+    if not subjects:
+        await message.answer(t("subject_list_empty", lang), parse_mode=ParseMode.HTML)
+        return
+
+    query = (command.args or "").strip() if command else ""
+    if query:
+        subject_name = resolve_subject_query(class_code, query, lang)
+        if not subject_name:
+            await message.answer(t("subject_not_found", lang).format(query=query), parse_mode=ParseMode.HTML)
+            return
+        await message.answer(
+            build_subject_week_text(user, subject_name),
+            parse_mode=ParseMode.HTML,
+            reply_markup=build_subject_week_keyboard(lang),
+        )
+        return
+
+    await state.update_data(subject_search_list=subjects)
+    await message.answer(
+        t("subject_picker_title", lang),
+        parse_mode=ParseMode.HTML,
+        reply_markup=build_subject_picker_keyboard(subjects, lang, page=0),
+    )
+
+
+@router.callback_query(F.data == "main_menu_schedule_subjects")
+async def schedule_subjects(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+
+    lang = user.get("lang", "ru")
+    subjects = get_class_subjects(user.get("class_code", ""))
+    if not subjects:
+        await callback.message.edit_text(
+            t("subject_list_empty", lang),
+            parse_mode=ParseMode.HTML,
+            reply_markup=build_daily_schedule_keyboard(lang),
+        )
+        await callback.answer()
+        return
+
+    await state.clear()
+    await state.update_data(subject_search_list=subjects)
+    await callback.message.edit_text(
+        t("subject_picker_title", lang),
+        parse_mode=ParseMode.HTML,
+        reply_markup=build_subject_picker_keyboard(subjects, lang, page=0),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("subject_page_"))
+async def schedule_subjects_page(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+
+    data = await state.get_data()
+    subjects = data.get("subject_search_list") or get_class_subjects(user.get("class_code", ""))
+    if not subjects:
+        await callback.answer(t("subject_list_empty", user.get("lang", "ru")), show_alert=True)
+        return
+
+    page = int(callback.data.rsplit("_", 1)[1])
+    await state.update_data(subject_search_list=subjects)
+    await callback.message.edit_text(
+        t("subject_picker_title", user.get("lang", "ru")),
+        parse_mode=ParseMode.HTML,
+        reply_markup=build_subject_picker_keyboard(subjects, user.get("lang", "ru"), page=page),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("subject_pick_"))
+async def schedule_subject_pick(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Not registered", show_alert=True)
+        return
+
+    data = await state.get_data()
+    subjects = data.get("subject_search_list") or get_class_subjects(user.get("class_code", ""))
+    idx = int(callback.data.rsplit("_", 1)[1])
+    if idx < 0 or idx >= len(subjects):
+        await callback.answer("Invalid subject", show_alert=True)
+        return
+
+    lang = user.get("lang", "ru")
+    await callback.message.edit_text(
+        build_subject_week_text(user, subjects[idx]),
+        parse_mode=ParseMode.HTML,
+        reply_markup=build_subject_week_keyboard(lang),
+    )
     await callback.answer()
 
 

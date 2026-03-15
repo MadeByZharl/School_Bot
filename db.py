@@ -442,6 +442,23 @@ def get_all_subjects():
             return [row["lesson_name"] for row in cursor.fetchall()]
 
 
+def get_class_subjects(class_code: str):
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT lesson_name
+                FROM lessons
+                WHERE class_code = %s
+                  AND lesson_name != ''
+                  AND lesson_name IS NOT NULL
+                ORDER BY lesson_name
+                """,
+                (class_code,),
+            )
+            return [row["lesson_name"] for row in cursor.fetchall()]
+
+
 def update_user_lang(tg_id: int, lang: str):
     with get_connection() as conn:
         with conn.cursor() as cursor:
