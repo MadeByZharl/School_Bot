@@ -211,6 +211,23 @@ def build_edit_schedule_class_keyboard(classes: list[str]) -> InlineKeyboardMark
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
+def build_broadcast_class_keyboard(classes: list[str], lang: str) -> InlineKeyboardMarkup:
+    kb_rows = []
+    row = []
+    for class_code in classes:
+        row.append(InlineKeyboardButton(text=class_code, callback_data=f"bc_class_{class_code}"))
+        if len(row) == 3:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+    kb_rows.append([InlineKeyboardButton(
+        text="🔙 Отмена" if lang == "ru" else "🔙 Болдырмау",
+        callback_data="main_menu_profile",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
 def build_edit_schedule_day_keyboard(lang: str) -> InlineKeyboardMarkup:
     days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -2041,40 +2058,57 @@ async def btn_send_class_zavuch(callback: CallbackQuery, state: FSMContext):
         await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
+    await state.update_data(main_msg_id=callback.message.message_id)
+    kb = build_broadcast_class_keyboard(get_all_classes(), lang)
     await callback.message.edit_text(t("send_class_ask", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
     await state.set_state(Broadcast.waiting_class_code_zavuch)
+    await callback.answer()
+
+@router.callback_query(Broadcast.waiting_class_code_zavuch, F.data.startswith("bc_class_"))
+async def broadcast_zavuch_select_class(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    lang = user["lang"] if user else "ru"
+    class_code = callback.data.removeprefix("bc_class_")
+    await state.update_data(broadcast_class=class_code, broadcast_sender_name=user["full_name"])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🔙 К классам" if lang == "ru" else "🔙 Сыныптарға",
+            callback_data="bc_back_classes",
+        )],
+        [InlineKeyboardButton(
+            text="❌ Отмена" if lang == "ru" else "❌ Болдырмау",
+            callback_data="main_menu_profile",
+        )],
+    ])
+    prompt = (
+        f"🏫 <b>Класс: {class_code}</b>\n\n" + t("send_class_prompt", lang)
+        if lang == "ru"
+        else f"🏫 <b>Сынып: {class_code}</b>\n\n" + t("send_class_prompt", lang)
+    )
+    await callback.message.edit_text(prompt, parse_mode=ParseMode.HTML, reply_markup=kb)
+    await state.set_state(Broadcast.waiting_text_class_zavuch)
+    await callback.answer()
 
 
 @router.message(Broadcast.waiting_class_code_zavuch)
-async def broadcast_zavuch_class_code(message: Message, state: FSMContext):
-    if not message.text:
-        return
+async def broadcast_zavuch_class_code_hint(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     lang = user["lang"] if user else "ru"
-    class_code = message.text.strip().upper()
-    await state.update_data(broadcast_class=class_code, broadcast_sender_name=user["full_name"])
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
-    try:
-        data = await state.get_data()
-        main_msg_id = data.get("main_msg_id")
-        await message.delete()
-        if main_msg_id:
-            await bot.edit_message_text(
-                chat_id=message.from_user.id,
-                message_id=main_msg_id,
-                text=t("send_class_prompt", lang),
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb,
-            )
-        else:
-            msg = await message.answer(t("send_class_prompt", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
-            await state.update_data(main_msg_id=msg.message_id)
-    except Exception as e:
-        logger.error(f"Error in broadcast_zavuch_class_code: {e}")
-        
-    await state.set_state(Broadcast.waiting_text_class_zavuch)
+    await message.answer(
+        "Выберите класс кнопкой выше." if lang == "ru" else "Сыныпты жоғарыдағы батырмамен таңдаңыз.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.callback_query(Broadcast.waiting_text_class_zavuch, F.data == "bc_back_classes")
+async def broadcast_zavuch_back_to_classes(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    lang = user["lang"] if user else "ru"
+    kb = build_broadcast_class_keyboard(get_all_classes(), lang)
+    await callback.message.edit_text(t("send_class_ask", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
+    await state.set_state(Broadcast.waiting_class_code_zavuch)
+    await callback.answer()
 
 
 @router.message(Broadcast.waiting_text_class_zavuch)
