@@ -197,6 +197,70 @@ class GenCode(StatesGroup):
     choosing_shift = State()
 
 
+def build_edit_schedule_class_keyboard(classes: list[str]) -> InlineKeyboardMarkup:
+    kb_rows = []
+    row = []
+    for class_code in classes:
+        row.append(InlineKeyboardButton(text=class_code, callback_data=f"es_class_{class_code}"))
+        if len(row) == 3:
+            kb_rows.append(row)
+            row = []
+    if row:
+        kb_rows.append(row)
+    kb_rows.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="es_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def build_edit_schedule_day_keyboard(lang: str) -> InlineKeyboardMarkup:
+    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
+        [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
+        [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
+        [InlineKeyboardButton(text="🔙 К классам" if lang == "ru" else "🔙 Сыныптарға", callback_data="es_back_class")],
+        [InlineKeyboardButton(text="❌ Выйти" if lang == "ru" else "❌ Шығу", callback_data="es_cancel")],
+    ])
+
+
+def build_edit_schedule_lessons_keyboard(lesson_map: dict[int, str], lang: str) -> InlineKeyboardMarkup:
+    empty_label = "➕ Пусто" if lang == "ru" else "➕ Бос"
+    kb_rows = []
+    for i in range(1, 11):
+        kb_rows.append([InlineKeyboardButton(text=f"{i}. {lesson_map.get(i, empty_label)}", callback_data=f"es_les_{i}")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 К выбору дня" if lang == "ru" else "🔙 Күндерге", callback_data="es_back_day")])
+    kb_rows.append([InlineKeyboardButton(text="❌ Выйти" if lang == "ru" else "❌ Шығу", callback_data="es_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def get_edit_schedule_class_view(lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "Для какого класса вы хотите изменить расписание? (Выберите из списка)"
+        if lang == "ru"
+        else "Қай сыныптың кестесін өзгерткіңіз келеді? (Тізімнен таңдаңыз)"
+    )
+    return text, build_edit_schedule_class_keyboard(get_all_classes())
+
+
+def get_edit_schedule_day_view(class_code: str, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        f"Выбран класс: <b>{class_code}</b>\n\nВыберите день недели:"
+        if lang == "ru"
+        else f"Таңдалған сынып: <b>{class_code}</b>\n\nАпта күнін таңдаңыз:"
+    )
+    return text, build_edit_schedule_day_keyboard(lang)
+
+
+def get_edit_schedule_lessons_view(class_code: str, day_idx: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
+    lesson_map = {ls["lesson_num"]: ls["lesson_name"] for ls in get_lessons(class_code, day_idx)}
+    text = (
+        f"📆 <b>{days[day_idx]}</b> ({class_code})\nВыберите урок для изменения:"
+        if lang == "ru"
+        else f"📆 <b>{days[day_idx]}</b> ({class_code})\nӨзгерту үшін сабақты таңдаңыз:"
+    )
+    return text, build_edit_schedule_lessons_keyboard(lesson_map, lang)
+
+
 
 
 
@@ -217,6 +281,17 @@ def hhmm_to_minutes(value: str) -> int | None:
 
 def normalize_subject_name(value: str) -> str:
     return " ".join((value or "").strip().lower().split())
+
+
+def is_admin_actor(user: dict | None = None, tg_id: int | None = None) -> bool:
+    candidate = tg_id
+    if candidate is None and user:
+        candidate = user.get("tg_id") or user.get("user_id")
+    return str(candidate) == str(ADMIN_ID)
+
+
+def has_any_role(user: dict | None, *roles: str) -> bool:
+    return bool(user) and (is_admin_actor(user=user) or user.get("role") in roles)
 
 
 def display_lesson_name(lesson_name: str, lang: str) -> str:
@@ -393,8 +468,7 @@ def get_main_menu_inline(lang: str = "ru", role: str = "student", is_admin: bool
 
 
 def menu_for_user_inline(user: dict) -> InlineKeyboardMarkup:
-    tg_id = user.get("tg_id") or user.get("user_id")
-    is_admin = (tg_id == ADMIN_ID)
+    is_admin = is_admin_actor(user=user)
     return get_main_menu_inline(user.get("lang", "ru"), user.get("role", "student"), is_admin=is_admin)
 
 
@@ -991,8 +1065,7 @@ async def cmd_settings(callback: CallbackQuery, state: FSMContext):
         )]
     ]
     
-    tg_id = user.get("tg_id") or user.get("user_id")
-    if str(tg_id) == str(ADMIN_ID) or user.get("role") == "zavuch":
+    if is_admin_actor(user=user) or user.get("role") == "zavuch":
         agg_warn = get_setting("aggressive_warning", "off")
         agg_warn_text = t("setting_aggressive_warn_on", lang) if agg_warn == "on" else t("setting_aggressive_warn_off", lang)
         kb_rows.append([InlineKeyboardButton(text=agg_warn_text, callback_data="toggle_agg_warn")])
@@ -1015,8 +1088,7 @@ async def toggle_agg_warn_callback(callback: CallbackQuery):
     user = get_user(callback.from_user.id)
     if not user:
         return
-    tg_id = user.get("tg_id") or user.get("user_id")
-    if str(tg_id) != str(ADMIN_ID) and user.get("role") != "zavuch":
+    if not is_admin_actor(user=user) and user.get("role") != "zavuch":
         await callback.answer("Нет прав", show_alert=True)
         return
         
@@ -1454,49 +1526,22 @@ async def btn_edit_schedule_inline(callback: CallbackQuery, state: FSMContext):
         lang = user["lang"] if user else "ru"
         await callback.answer(t("no_permission", lang), show_alert=True)
         return
-        
-    lang = user["lang"]
-    from db import get_all_classes
-    classes = get_all_classes()
-    
-    kb_rows = []
-    row = []
-    for c in classes:
-        row.append(InlineKeyboardButton(text=c, callback_data=c))
-        if len(row) == 3:
-            kb_rows.append(row)
-            row = []
-    if row:
-        kb_rows.append(row)
-    
-    kb_rows.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    
-    await callback.message.edit_text("Для какого класса вы хотите изменить расписание? (Выберите из списка)", reply_markup=kb, parse_mode=ParseMode.HTML)
+    text, kb = get_edit_schedule_class_view(user["lang"])
+    await state.update_data(main_msg_id=callback.message.message_id)
     await state.set_state(EditScheduleInline.choosing_class)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await callback.answer()
 
-@router.callback_query(StateFilter(EditScheduleInline.choosing_class))
+@router.callback_query(StateFilter(EditScheduleInline.choosing_class), F.data.startswith("es_class_"))
 async def edit_schedule_inline_select_class(callback: CallbackQuery, state: FSMContext):
     user = get_user(callback.from_user.id)
     lang = user["lang"] if user else "ru"
-    class_code = callback.data.strip()
-    
-    # Check if they pressed cancel / back
-    if class_code == "main_menu_profile":
-        await state.clear()
-        await cmd_profile(callback, state)
-        return
-        
+    class_code = callback.data.removeprefix("es_class_").strip()
     await state.update_data(edit_class=class_code)
-    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
-        [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
-        [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
-        [InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]
-    ])
-    msg_text = f"Выбран класс: <b>{class_code}</b>\n\nВыберите день недели:"
-    await callback.message.edit_text(msg_text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await state.set_state(None)
+    text, kb = get_edit_schedule_day_view(class_code, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("es_day_"))
 async def edit_schedule_inline_select_day(callback: CallbackQuery, state: FSMContext):
@@ -1510,42 +1555,35 @@ async def edit_schedule_inline_select_day(callback: CallbackQuery, state: FSMCon
         
     user = get_user(callback.from_user.id)
     lang = user["lang"] if user else "ru"
-    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
-    
-    from db import get_lessons
-    lessons = get_lessons(class_code, day_idx)
-    # create a map of lesson_num to lesson_name
-    lesson_map = {ls["lesson_num"]: ls["lesson_name"] for ls in lessons}
-    
-    kb_rows = []
-    for i in range(1, 11):
-        name = lesson_map.get(i, "➕ Пусто")
-        btn_text = f"{i}. {name}"
-        kb_rows.append([InlineKeyboardButton(text=btn_text, callback_data=f"es_les_{i}")])
-        
-    kb_rows.append([InlineKeyboardButton(text="🔙 К выбору дня", callback_data="es_back_day")])
-    kb_rows.append([InlineKeyboardButton(text="❌ Выйти", callback_data="es_cancel")])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    
-    await callback.message.edit_text(f"📆 <b>{days[day_idx]}</b> ({class_code})\nВыберите урок для изменения:", reply_markup=kb, parse_mode=ParseMode.HTML)
+    text, kb = get_edit_schedule_lessons_view(class_code, day_idx, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     await callback.answer()
 
 @router.callback_query(F.data == "es_back_day")
 async def edit_schedule_inline_back_day(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    class_code = data.get("edit_class")
+    if not class_code:
+        await callback.answer("Ошибка. Сначала выберите класс.", show_alert=True)
+        return
     user = get_user(callback.from_user.id)
     lang = user["lang"] if user else "ru"
-    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=days[0], callback_data="es_day_0"), InlineKeyboardButton(text=days[1], callback_data="es_day_1")],
-        [InlineKeyboardButton(text=days[2], callback_data="es_day_2"), InlineKeyboardButton(text=days[3], callback_data="es_day_3")],
-        [InlineKeyboardButton(text=days[4], callback_data="es_day_4"), InlineKeyboardButton(text=days[5], callback_data="es_day_5")],
-        [InlineKeyboardButton(text="❌ Выйти", callback_data="es_cancel")],
-    ])
-    await callback.message.edit_text("Выберите день недели:", reply_markup=kb)
+    text, kb = get_edit_schedule_day_view(class_code, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await callback.answer()
+
+@router.callback_query(F.data == "es_back_class")
+async def edit_schedule_inline_back_class(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    lang = user["lang"] if user else "ru"
+    text, kb = get_edit_schedule_class_view(lang)
+    await state.set_state(EditScheduleInline.choosing_class)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     await callback.answer()
 
 @router.callback_query(F.data == "es_cancel")
 async def edit_schedule_inline_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await cmd_profile(callback, state)
 
 @router.callback_query(F.data.startswith("es_les_"))
@@ -1582,8 +1620,15 @@ async def edit_schedule_inline_back_les(callback: CallbackQuery, state: FSMConte
     data = await state.get_data()
     day_idx = data.get("edit_day_idx")
     if day_idx is not None:
-        callback.data = f"es_day_{day_idx}"
-        await edit_schedule_inline_select_day(callback, state)
+        class_code = data.get("edit_class")
+        user = get_user(callback.from_user.id)
+        lang = user["lang"] if user else "ru"
+        if not class_code:
+            await callback.answer("Ошибка. Начните сначала.", show_alert=True)
+            return
+        text, kb = get_edit_schedule_lessons_view(class_code, day_idx, lang)
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+        await callback.answer()
     else:
         await callback.answer("Ошибка. Начните сначала.", show_alert=True)
 
@@ -1605,8 +1650,10 @@ async def edit_schedule_inline_set_subject(callback: CallbackQuery, state: FSMCo
     update_single_lesson(class_code, day_idx, lesson_num, subj_name)
     
     await callback.answer(f"✅ Сохранено: {subj_name}")
-    callback.data = f"es_day_{day_idx}"
-    await edit_schedule_inline_select_day(callback, state)
+    user = get_user(callback.from_user.id)
+    lang = user["lang"] if user else "ru"
+    text, kb = get_edit_schedule_lessons_view(class_code, day_idx, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
 @router.callback_query(F.data == "es_clear")
 async def edit_schedule_inline_clear(callback: CallbackQuery, state: FSMContext):
@@ -1619,15 +1666,23 @@ async def edit_schedule_inline_clear(callback: CallbackQuery, state: FSMContext)
     delete_single_lesson(class_code, day_idx, lesson_num)
     
     await callback.answer("🗑 Урок удалён (пусто)")
-    callback.data = f"es_day_{day_idx}"
-    await edit_schedule_inline_select_day(callback, state)
+    user = get_user(callback.from_user.id)
+    lang = user["lang"] if user else "ru"
+    text, kb = get_edit_schedule_lessons_view(class_code, day_idx, lang)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
 @router.callback_query(F.data == "es_manual")
 async def edit_schedule_inline_manual(callback: CallbackQuery, state: FSMContext):
+    user = get_user(callback.from_user.id)
+    lang = user["lang"] if user else "ru"
     await state.set_state(EditScheduleInline.entering_custom_subject)
-    
-    # We edit text and wait for user's message
-    await callback.message.edit_text("✍️ Напишите название предмета в чат (или нажмите Отмена):")
+    await state.update_data(main_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        "✍️ Напишите название предмета в чат.\n\nЧтобы отменить, отправьте <code>отмена</code>."
+        if lang == "ru"
+        else "✍️ Пән атауын чатқа жазыңыз.\n\nБолдырмау үшін <code>болдырмау</code> деп жіберіңіз.",
+        parse_mode=ParseMode.HTML,
+    )
     await callback.answer()
 
 @router.message(StateFilter(EditScheduleInline.entering_custom_subject))
@@ -1649,10 +1704,17 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
     if subj_name.lower() in ("отмена", "cancel", "болдырмау"):
         await state.set_state(None)
         try:
-            main_msg_id = data.get("main_msg_id")
             await message.delete()
+            main_msg_id = data.get("main_msg_id")
             if main_msg_id:
-                await bot.edit_message_text(chat_id=message.from_user.id, message_id=main_msg_id, text="🚫", reply_markup=menu_for_user_inline(user))
+                text, kb = get_edit_schedule_lessons_view(class_code, day_idx, lang)
+                await bot.edit_message_text(
+                    chat_id=message.from_user.id,
+                    message_id=main_msg_id,
+                    text=text,
+                    reply_markup=kb,
+                    parse_mode=ParseMode.HTML,
+                )
         except Exception:
             pass
         return
@@ -1665,25 +1727,11 @@ async def edit_schedule_inline_manual_text(message: Message, state: FSMContext):
     except Exception:
         pass
         
-    days = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
-    from db import get_lessons
-    lessons = get_lessons(class_code, day_idx)
-    lesson_map = {ls["lesson_num"]: ls["lesson_name"] for ls in lessons}
-    
-    kb_rows = []
-    for i in range(1, 11):
-        name = lesson_map.get(i, "➕ Пусто")
-        btn_text = f"{i}. {name}"
-        kb_rows.append([InlineKeyboardButton(text=btn_text, callback_data=f"es_les_{i}")])
-        
-    kb_rows.append([InlineKeyboardButton(text="🔙 К выбору дня", callback_data="es_back_day")])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    
     await state.set_state(None)
     
     try:
         main_msg_id = data.get("main_msg_id")
-        text_content = f"✅ Вручную сохранено: {subj_name}\n\n📆 <b>{days[day_idx]}</b> ({class_code})\nВыберите урок для изменения:"
+        text_content, kb = get_edit_schedule_lessons_view(class_code, day_idx, lang)
         if main_msg_id:
             await bot.edit_message_text(
                 chat_id=message.from_user.id,
@@ -1724,12 +1772,12 @@ async def btn_gen_teacher_code(callback: CallbackQuery, state: FSMContext):
 async def btn_gen_student_code(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     user = get_user(callback.from_user.id)
-    if not user or user["role"] not in ("zavuch", "teacher"):
+    if not has_any_role(user, "zavuch", "teacher"):
         lang = user["lang"] if user else "ru"
         await callback.answer(t("no_permission", lang), show_alert=True)
         return
     lang = user["lang"]
-    if user["role"] == "teacher" and user.get("class_code"):
+    if user["role"] == "teacher" and user.get("class_code") and not is_admin_actor(user=user):
         code = create_invite_code(
             role="student",
             class_code=user["class_code"],
@@ -1923,9 +1971,12 @@ async def broadcast_all_confirm(message: Message, state: FSMContext):
 @router.callback_query(F.data == "main_menu_send_class")
 async def btn_send_class_teacher(callback: CallbackQuery, state: FSMContext):
     user = get_user(callback.from_user.id)
-    if not user or user["role"] != "teacher":
+    if not has_any_role(user, "teacher"):
         lang = user["lang"] if user else "ru"
         await callback.answer(t("no_permission", lang), show_alert=True)
+        return
+    if is_admin_actor(user=user) and not user.get("class_code"):
+        await btn_send_class_zavuch(callback, state)
         return
     lang = user["lang"]
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Отмена", callback_data="main_menu_profile")]])
@@ -1943,13 +1994,14 @@ async def broadcast_class_confirm(message: Message, state: FSMContext):
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         await state.clear()
         return
-    class_users = get_users_by_class(user["class_code"])
+    class_code = user["class_code"]
+    class_users = get_users_by_class(class_code)
     preview = message.text[:200] + ("..." if len(message.text) > 200 else "")
     sender_username = f"@{message.from_user.username}" if message.from_user.username else user["full_name"]
     await state.update_data(
         broadcast_text=message.text,
         broadcast_target="class",
-        broadcast_class=user["class_code"],
+        broadcast_class=class_code,
         broadcast_sender_name=sender_username,
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
