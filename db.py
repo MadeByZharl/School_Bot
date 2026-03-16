@@ -15,6 +15,17 @@ DB_USER = os.getenv("DB_USER", "u21319_qwgUvpiitb")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "s21319_TgBot")
 
+
+def normalize_class_code(class_code: str | None) -> str | None:
+    if class_code is None:
+        return None
+    cleaned = re.sub(r'[\s"\']+', "", str(class_code)).upper()
+    return cleaned or None
+
+
+def _normalized_class_sql(column_name: str = "class_code") -> str:
+    return f"REPLACE(REPLACE(REPLACE(UPPER({column_name}), ' ', ''), '\"', ''), \"'\", '')"
+
 def get_connection():
     return pymysql.connect(
         host=DB_HOST,
@@ -212,13 +223,14 @@ def create_invite_code(role: str, class_code: str, shift: int,
                        created_by: int, reusable: bool = False) -> str:
     code = generate_code()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """INSERT INTO invite_codes
                    (code, role, class_code, shift, created_by, created_at, is_active, reusable, use_count)
                    VALUES (%s, %s, %s, %s, %s, %s, 1, %s, 0)""",
-                (code, role, class_code, shift, created_by, now, int(reusable)),
+                (code, role, normalized_class_code, shift, created_by, now, int(reusable)),
             )
     return code
 
@@ -248,6 +260,7 @@ def use_invite_code(code: str, tg_id: int) -> dict | None:
                 )
                 if cursor.rowcount == 0:
                     return None
+            row["class_code"] = normalize_class_code(row.get("class_code"))
             return row
 
 
@@ -274,13 +287,14 @@ def get_active_codes_by_creator(created_by: int):
 def add_user(tg_id: int, full_name: str, role: str, lang: str,
              class_code: str = None, shift: int = 1, platform: str = "telegram") -> dict:
     trial_end = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """REPLACE INTO users
                    (tg_id, full_name, role, lang, class_code, shift, sub_end_date, platform)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (tg_id, full_name, role, lang, class_code, shift, trial_end, platform),
+                (tg_id, full_name, role, lang, normalized_class_code, shift, trial_end, platform),
             )
     return get_user(tg_id)
 
@@ -347,89 +361,132 @@ def get_all_users():
 
 
 def get_users_by_class(class_code: str):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM users WHERE class_code = %s",
-                (class_code,),
+                f"SELECT * FROM users WHERE {_normalized_class_sql('class_code')} = %s",
+                (normalized_class_code,),
             )
             return cursor.fetchall()
 
 
 def add_class(class_code: str, class_name: str, shift: int):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "REPLACE INTO classes (class_code, class_name, shift) VALUES (%s, %s, %s)",
-                (class_code, class_name, shift),
+                (normalized_class_code, class_name, shift),
             )
 
 
 def get_class(class_code: str):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM classes WHERE class_code = %s", (class_code,))
+            cursor.execute("SELECT * FROM classes WHERE class_code = %s", (normalized_class_code,))
+            row = cursor.fetchone()
+            if row:
+                return row
+            cursor.execute(
+                f"SELECT * FROM classes WHERE {_normalized_class_sql('class_code')} = %s LIMIT 1",
+                (normalized_class_code,),
+            )
             return cursor.fetchone()
 
 def get_all_classes():
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT class_code FROM classes ORDER BY class_code ASC")
-            return [row["class_code"] for row in cursor.fetchall()]
+            classes = []
+            seen = set()
+            for row in cursor.fetchall():
+                normalized = normalize_class_code(row["class_code"])
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    classes.append(normalized)
+            return classes
 
 
 def delete_lessons(class_code: str, day_idx: int):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM lessons WHERE class_code = %s AND day_idx = %s",
-                (class_code, day_idx),
+                f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s",
+                (normalized_class_code, day_idx),
             )
 
 def delete_single_lesson(class_code: str, day_idx: int, lesson_num: int):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM lessons WHERE class_code = %s AND day_idx = %s AND lesson_num = %s",
-                (class_code, day_idx, lesson_num),
+                f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s AND lesson_num = %s",
+                (normalized_class_code, day_idx, lesson_num),
             )
 
 
 def add_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
-                (class_code, day_idx, lesson_num, lesson_name),
+                (normalized_class_code, day_idx, lesson_num, lesson_name),
             )
 
 def set_weekly_schedule(class_code: str, schedule: dict):
     # schedule format: {0: ["Math", "Physics"], 1: ["History", "PE", "Chemistry"]}
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM lessons WHERE class_code = %s", (class_code,))
+            cursor.execute(
+                f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s",
+                (normalized_class_code,),
+            )
             for day_idx, lessons in schedule.items():
                 for num, name in enumerate(lessons, 1):
                     cursor.execute(
                         "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
-                        (class_code, day_idx, num, str(name).strip())
+                        (normalized_class_code, day_idx, num, str(name).strip())
                     )
 
 def update_single_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "REPLACE INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
-                (class_code, day_idx, lesson_num, lesson_name),
+                f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s AND lesson_num = %s",
+                (normalized_class_code, day_idx, lesson_num),
+            )
+            cursor.execute(
+                "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
+                (normalized_class_code, day_idx, lesson_num, lesson_name),
             )
 
 
 def get_lessons(class_code: str, day_idx: int):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM lessons WHERE class_code = %s AND day_idx = %s ORDER BY lesson_num",
-                (class_code, day_idx),
+                (normalized_class_code, day_idx),
+            )
+            rows = cursor.fetchall()
+            if rows:
+                return rows
+            cursor.execute(
+                f"""
+                SELECT lesson_num, MAX(lesson_name) AS lesson_name
+                FROM lessons
+                WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s
+                GROUP BY lesson_num
+                ORDER BY lesson_num
+                """,
+                (normalized_class_code, day_idx),
             )
             return cursor.fetchall()
 
@@ -443,6 +500,7 @@ def get_all_subjects():
 
 
 def get_class_subjects(class_code: str):
+    normalized_class_code = normalize_class_code(class_code)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -454,7 +512,21 @@ def get_class_subjects(class_code: str):
                   AND lesson_name IS NOT NULL
                 ORDER BY lesson_name
                 """,
-                (class_code,),
+                (normalized_class_code,),
+            )
+            subjects = [row["lesson_name"] for row in cursor.fetchall()]
+            if subjects:
+                return subjects
+            cursor.execute(
+                f"""
+                SELECT DISTINCT lesson_name
+                FROM lessons
+                WHERE {_normalized_class_sql('class_code')} = %s
+                  AND lesson_name != ''
+                  AND lesson_name IS NOT NULL
+                ORDER BY lesson_name
+                """,
+                (normalized_class_code,),
             )
             return [row["lesson_name"] for row in cursor.fetchall()]
 
