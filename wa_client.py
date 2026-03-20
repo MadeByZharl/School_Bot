@@ -22,8 +22,11 @@ def html_to_wa(text: str) -> str:
     """Convert basic Telegram HTML to WhatsApp-friendly markdown."""
     text = re.sub(r"<b>(.*?)</b>", r"*\1*", text)
     text = re.sub(r"<i>(.*?)</i>", r"_\1_", text)
+    text = re.sub(r"<s>(.*?)</s>", r"~\1~", text)
+    text = re.sub(r"<u>(.*?)</u>", r"\1", text)
     text = re.sub(r"<code>(.*?)</code>", r"\1", text)
     text = re.sub(r"<tg-spoiler>(.*?)</tg-spoiler>", r"\1", text)
+    text = re.sub(r"<[^>]+>", "", text)
     return text
 
 

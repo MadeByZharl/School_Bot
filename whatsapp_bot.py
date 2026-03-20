@@ -30,25 +30,25 @@ def hhmm_to_minutes(value: str) -> int | None:
 
 def get_main_menu_text(lang: str, role: str) -> str:
     menu = []
-    menu.append("1️⃣ " + t("menu_schedule", lang))
-    menu.append("2️⃣ " + t("menu_profile", lang))
+    menu.append("1. " + t("menu_schedule", lang))
+    menu.append("2. " + t("menu_profile", lang))
     if lang == "ru":
-        menu.append("3️⃣ 🇰🇿 Сменить язык на Казахский")
+        menu.append("3. Сменить язык на Казахский")
     else:
-        menu.append("3️⃣ 🇷🇺 Орыс тіліне ауысу")
-    menu.append("4️⃣ " + t("menu_help", lang))
-    menu.append("5️⃣ 🗓️ Расписание на неделю" if lang == "ru" else "5️⃣ 🗓️ Апталық кесте")
+        menu.append("3. Орыс тіліне ауысу")
+    menu.append("4. " + t("menu_help", lang))
+    menu.append("5. " + ("Расписание на неделю" if lang == "ru" else "Апталық кесте"))
     if role in ("teacher", "zavuch"):
-        menu.append("6️⃣ " + t("menu_gen_student_code", lang))
-        menu.append("7️⃣ " + t("menu_my_codes", lang))
+        menu.append("6. " + t("menu_gen_student_code", lang))
+        menu.append("7. " + t("menu_my_codes", lang))
         if role == "zavuch":
-            menu.append("8️⃣ " + t("menu_send_all", lang))
-            menu.append("9️⃣ " + t("menu_edit_schedule", lang))
+            menu.append("8. " + t("menu_send_all", lang))
+            menu.append("9. " + t("menu_edit_schedule", lang))
         else:
-            menu.append("8️⃣ " + t("menu_send_class", lang))
+            menu.append("8. " + t("menu_send_class", lang))
     
-    header = "🌟 *ГЛАВНОЕ МЕНЮ* 🌟\n" if lang == "ru" else "🌟 *БАСТЫ МӘЗІР* 🌟\n"
-    footer = "\n👇 _Отправьте нужную цифру:_" if lang == "ru" else "\n👇 _Қажетті цифрды жіберіңіз:_"
+    header = "*Меню*\n" if lang == "ru" else "*Мәзір*\n"
+    footer = "\n" + ("Поддержка → @tiktakeralihan" if lang == "ru" else "Қолдау → @tiktakeralihan")
     return header + "\n" + "\n".join(menu) + "\n" + footer
 
 def handle_schedule(wa_id: int, user: dict):
@@ -73,7 +73,10 @@ def handle_schedule(wa_id: int, user: dict):
                 last_end = times["end"]
                 
         if now_time >= last_end:
-            show_day = (weekday + 1) % 6
+            if weekday >= 4:  # Пятница/Суббота → Понедельник
+                show_day = 0
+            else:
+                show_day = weekday + 1
             is_tomorrow = True
 
     day_names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"] if lang == "ru" else ["Дүйсенбі", "Сейсенбі", "Сәрсенбі", "Бейсенбі", "Жұма", "Сенбі", "Жексенбі"]
@@ -250,16 +253,26 @@ def process_message(wa_id: int, text: str):
             lang = fsm["data"]["lang"]
             name = text.strip()
             
-            # Very basic validation
+            # Validation
             if len(name) < 2:
                 err_msg = "❌ Имя слишком короткое. Попробуйте еще раз:" if lang == "ru" else "❌ Атыңыз тым қысқа. Қайтадан байқап көріңіз:"
                 send_msg(wa_id, err_msg)
                 return
+            BAD_WORDS_WA = ["блять", "сука", "хуй", "пизд", "ебан", "нахуй", "залуп", "ёб", "дерьм"]
+            if any(w in name.lower() for w in BAD_WORDS_WA):
+                err_msg = "❌ Недопустимое имя. Попробуйте другое:" if lang == "ru" else "❌ Жарамсыз ат. Басқасын көріңіз:"
+                send_msg(wa_id, err_msg)
+                return
+            if role != "student":
+                parts = name.strip().split()
+                if len(parts) < 2 or not all(p[0].isupper() and p.isalpha() for p in parts):
+                    err_msg = "❌ Введите ФИО (Фамилия Имя):" if lang == "ru" else "❌ Аты-жөніңізді енгізіңіз (Тегі Аты):"
+                    send_msg(wa_id, err_msg)
+                    return
                 
             db.add_user(wa_id, name, role, lang, class_code, shift, "whatsapp")
             user = db.get_user(wa_id)
-            send_msg(wa_id, "🎉 " + t("registration_done", lang))
-            send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
+            send_msg(wa_id, t("registration_done", lang) + "\n\n" + get_main_menu_text(user["lang"], user["role"]))
             FSM_DATA.pop(wa_id, None)
             return
         # Maybe invite code?
@@ -272,8 +285,7 @@ def process_message(wa_id: int, text: str):
             send_msg(wa_id, "Выберите язык / Тілді таңдаңыз:\n1. 🇷🇺 Русский\n2. 🇰🇿 Қазақша\n\n(Отправьте цифру / Цифрды жіберіңіз)")
             return
 
-        send_msg(wa_id, t("welcome", "ru"))
-        send_msg(wa_id, t("ask_invite_code", "ru"))
+        send_msg(wa_id, t("welcome", "ru") + "\n\n" + t("ask_invite_code", "ru"))
         return
 
     lang = user["lang"]
@@ -281,9 +293,8 @@ def process_message(wa_id: int, text: str):
     fsm = FSM_DATA.get(wa_id)
     if fsm and fsm.get("state") == "wait_broadcast_text":
         if text_ci in ("отмена", "cancel", "болдырмау"):
-            send_msg(wa_id, "🚫 " + ("Рассылка отменена." if lang == "ru" else "Рассылка тоқтатылды."))
             FSM_DATA.pop(wa_id, None)
-            send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+            send_msg(wa_id, ("Рассылка отменена." if lang == "ru" else "Рассылка тоқтатылды.") + "\n\n" + get_main_menu_text(lang, user["role"]))
             return
         
         text_to_send = text.strip()
@@ -327,16 +338,14 @@ def process_message(wa_id: int, text: str):
         res_msg = t("broadcast_done", lang).format(count=count)
         if errors:
             res_msg += f"\n⚠️ Ошибок / Қате: {errors}"
-        send_msg(wa_id, "✅ " + res_msg)
         FSM_DATA.pop(wa_id, None)
-        send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+        send_msg(wa_id, res_msg + "\n\n" + get_main_menu_text(lang, user["role"]))
         return
 
     if fsm and fsm.get("state") == "edit_schedule_class":
         if text_ci in ("отмена", "cancel", "болдырмау"):
-            send_msg(wa_id, "🚫 " + ("Отменено." if lang == "ru" else "Тоқтатылды."))
             FSM_DATA.pop(wa_id, None)
-            send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+            send_msg(wa_id, ("Отменено." if lang == "ru" else "Тоқтатылды.") + "\n\n" + get_main_menu_text(lang, user["role"]))
             return
             
         class_code = text.strip().upper()
@@ -352,9 +361,8 @@ def process_message(wa_id: int, text: str):
         
     if fsm and fsm.get("state") == "edit_schedule_day":
         if text_ci in ("отмена", "cancel", "болдырмау"):
-            send_msg(wa_id, "🚫 " + ("Отменено." if lang == "ru" else "Тоқтатылды."))
             FSM_DATA.pop(wa_id, None)
-            send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+            send_msg(wa_id, ("Отменено." if lang == "ru" else "Тоқтатылды.") + "\n\n" + get_main_menu_text(lang, user["role"]))
             return
             
         day_map = {
@@ -387,9 +395,8 @@ def process_message(wa_id: int, text: str):
         
     if fsm and fsm.get("state") == "edit_schedule_text":
         if text_ci in ("отмена", "cancel", "болдырмау"):
-            send_msg(wa_id, "🚫 " + ("Отменено." if lang == "ru" else "Тоқтатылды."))
             FSM_DATA.pop(wa_id, None)
-            send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+            send_msg(wa_id, ("Отменено." if lang == "ru" else "Тоқтатылды.") + "\n\n" + get_main_menu_text(lang, user["role"]))
             return
             
         class_code = fsm["class_code"]
@@ -409,9 +416,8 @@ def process_message(wa_id: int, text: str):
             db.add_lesson(class_code, day_idx, i, lesson)
             formatted_schedule += f"{i}. {lesson}\n"
             
-        send_msg(wa_id, t("edit_schedule_done", lang))
         FSM_DATA.pop(wa_id, None)
-        send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+        send_msg(wa_id, t("edit_schedule_done", lang) + "\n\n" + get_main_menu_text(lang, user["role"]))
         
         recipients = db.get_users_by_class(class_code)
         for u in recipients:
@@ -437,7 +443,6 @@ def process_message(wa_id: int, text: str):
 
     if text_ci in ("1", "расписание", "1. расписание", "кесте"):
         handle_schedule(wa_id, user)
-        send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
     elif text_ci in ("2", "профиль", "2. профиль"):
         role_key = f"role_{user['role']}"
         role_label = t(role_key, lang)
@@ -449,24 +454,20 @@ def process_message(wa_id: int, text: str):
             lang="Русский" if lang == "ru" else "Қазақша"
         )
         send_msg(wa_id, msg_text)
-        send_msg(wa_id, get_main_menu_text(lang, user["role"]))
     elif text_ci in ("3", "настройки", "параметрлер"):
         # Simple toggle language for now
         new_lang = "kk" if lang == "ru" else "ru"
         db.update_user_lang(wa_id, new_lang)
-        send_msg(wa_id, t("lang_changed", new_lang))
-        send_msg(wa_id, get_main_menu_text(new_lang, user["role"]))
+        send_msg(wa_id, t("lang_changed", new_lang) + "\n\n" + get_main_menu_text(new_lang, user["role"]))
     elif text_ci in ("4", "помощь", "анықтама"):
         send_msg(wa_id, t("help_text", lang))
     elif text_ci in ("5", "расписание на неделю", "апталық кесте"):
         handle_weekly_schedule(wa_id, user)
-        send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
     elif text_ci.startswith("6") and user["role"] in ("teacher", "zavuch"):
         new_code = db.create_invite_code("student", user.get("class_code"), user.get("shift", 1), wa_id, reusable=True)
         msg_ru = f"✅ Код для ученика создан:\n\n`{new_code}`\n\n_Передайте этот код ученику._"
         msg_kk = f"✅ Оқушы коды жасалды:\n\n`{new_code}`\n\n_Бұл кодты оқушыға беріңіз._"
-        send_msg(wa_id, msg_ru if lang == "ru" else msg_kk)
-        send_msg(wa_id, get_main_menu_text(lang, user["role"]))
+        send_msg(wa_id, (msg_ru if lang == "ru" else msg_kk))
     elif text_ci.startswith("7") and user["role"] in ("teacher", "zavuch"):
         codes = db.get_active_codes_by_creator(wa_id)
         if not codes:
@@ -478,7 +479,6 @@ def process_message(wa_id: int, text: str):
             for c in codes:
                 lines.append(f"• `{c['code']}` ({c['role']})")
             send_msg(wa_id, "\n".join(lines))
-        send_msg(wa_id, get_main_menu_text(lang, user["role"]))
     elif text_ci.startswith("8") and user["role"] in ("teacher", "zavuch"):
         FSM_DATA[wa_id] = {"state": "wait_broadcast_text"}
         msg_ru = "📝 Введите текст для рассылки\n(отправьте 'отмена' для выхода):"
@@ -488,11 +488,7 @@ def process_message(wa_id: int, text: str):
         FSM_DATA[wa_id] = {"state": "edit_schedule_class"}
         send_msg(wa_id, t("edit_schedule_ask_class", lang))
     else:
-        # Unknown command fallback
-        msg_ru = "❌ Неизвестная команда. Пожалуйста, выберите цифру из меню."
-        msg_kk = "❌ Белгісіз бұйрық. Мәзірден цифрды таңдаңыз."
-        send_msg(wa_id, msg_ru if lang == "ru" else msg_kk)
-        handle_schedule(wa_id, user)
+        # Unknown command — just show menu
         send_msg(wa_id, get_main_menu_text(user["lang"], user["role"]))
 
 def webhook_handler(typeWebhook, body):

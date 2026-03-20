@@ -58,7 +58,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7903470823"))
 WEBAPP_URL = "https://your-fastapi-site.com"
-BOT_USERNAME = os.getenv("BOT_USERNAME", "OquBot")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "SchoolUshtobeBot")
 
 # Timezone definition
 ALMATY_TZ = ZoneInfo("Asia/Almaty")
@@ -452,6 +452,7 @@ def get_main_menu_inline(lang: str = "ru", role: str = "student", is_admin: bool
         ],
         [
             InlineKeyboardButton(text=t("menu_help", lang), callback_data="main_menu_help"),
+            InlineKeyboardButton(text=t("menu_support", lang), url="https://t.me/tiktakeralihan"),
         ],
     ]
     
@@ -519,7 +520,7 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
     if existing:
         lang = existing["lang"]
         msg = await message.answer(
-            t("already_registered", lang) + "\n\n<i>Открываю главное меню...</i>",
+            t("already_registered", lang),
             parse_mode=ParseMode.HTML,
             reply_markup=menu_for_user_inline(existing),
         )
@@ -551,7 +552,7 @@ async def cmd_menu(message: Message, state: FSMContext):
         return
     
     lang = user.get("lang", "ru")
-    text = "🌟 <b>Главное меню</b> 🌟" if lang == "ru" else "🌟 <b>Басты мәзір</b> 🌟"
+    text = "<b>Меню</b>" if lang == "ru" else "<b>Мәзір</b>"
     msg = await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
     await state.update_data(main_msg_id=msg.message_id)
 
@@ -883,11 +884,7 @@ def build_daily_schedule_view(user: dict) -> tuple[str, InlineKeyboardMarkup, bo
             lines.append(f"{connector} {num}. <s><b>{lesson_name}</b>  ({start}–{end})</s>")
         elif is_current:
             mins_left = max(0, end_minutes - now_minutes)
-            current_note = (
-                f" 🔔 Сейчас урок · до конца {mins_left} мин"
-                if lang == "ru"
-                else f" 🔔 Қазір сабақ · аяқталуына {mins_left} мин"
-            )
+            current_note = f" ← {mins_left} мин" if lang == "ru" else f" ← {mins_left} мин"
             lines.append(f"{connector} {num}. <u><b>{lesson_name}</b></u>  ({start}–{end}){current_note}")
         else:
             lines.append(f"{connector} {num}. <b>{lesson_name}</b>  ({start}–{end})")
@@ -895,10 +892,8 @@ def build_daily_schedule_view(user: dict) -> tuple[str, InlineKeyboardMarkup, bo
     mode_label = t(BELL_MODE_LABEL.get(bell_mode, "bell_standard"), lang)
     lines.append(f"\n<i>{mode_label}</i>")
 
-    header_text_ru = "📅 Расписание на завтра:\n\n{lessons}" if is_tomorrow else "📅 Расписание на сегодня:\n\n{lessons}"
-    header_text_kk = "📅 Ертеңгі сабақ кестесі:\n\n{lessons}" if is_tomorrow else "📅 Бүгінгі сабақ кестесі:\n\n{lessons}"
-    text_template = header_text_ru if lang == "ru" else header_text_kk
-    text = text_template.format(lessons="\n".join(lines))
+    header_key = "schedule_tomorrow" if is_tomorrow else "schedule_today"
+    text = t(header_key, lang).format(lessons="\n".join(lines))
 
     # Live-refresh is useful only for today's schedule.
     should_live_refresh = (not is_tomorrow) and (weekday < 6)
@@ -1471,7 +1466,7 @@ async def btn_bell_mode(callback: CallbackQuery, state: FSMContext):
             text=t("bell_custom", lang),
             callback_data="bell_set_custom",
         )],
-        [InlineKeyboardButton(text="🔙 " + ("Назад", "Мәзірге")[lang=="kk"], callback_data="main_menu_profile")]
+        [InlineKeyboardButton(text="🔙 " + ("Мәзірге" if lang == "kk" else "Назад"), callback_data="main_menu_profile")]
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await callback.message.edit_text(
@@ -2226,13 +2221,12 @@ async def legacy_menu_fallback(message: Message, state: FSMContext):
         return
         
     lang = user.get("lang", "ru")
-    await message.answer(
-        "🔄 Интерфейс обновлён! Убираю старую клавиатуру..." if lang == "ru" else "🔄 Интерфейс жаңартылды! Ескі пернетақтаны алып тастау...", 
-        reply_markup=ReplyKeyboardRemove()
-    )
-    
-    text = "🌟 <b>Главное меню</b> 🌟" if lang == "ru" else "🌟 <b>Басты мәзір</b> 🌟"
+    text = "<b>Меню</b>" if lang == "ru" else "<b>Мәзір</b>"
     msg2 = await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await state.update_data(main_msg_id=msg2.message_id)
 
 @router.message()
@@ -2554,7 +2548,7 @@ async def auto_backup_task():
                 f.write(json_str)
                 temp_path = f.name
                 
-            name = f"auto_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+            name = f"auto_backup_{datetime.now(ALMATY_TZ).strftime('%Y%m%d_%H%M')}.json"
             db_file = FSInputFile(temp_path, filename=name)
             await bot.send_document(
                 chat_id=ADMIN_ID, 

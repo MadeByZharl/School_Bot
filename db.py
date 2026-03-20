@@ -575,11 +575,11 @@ def get_bot_stats():
 
 def get_full_backup() -> dict:
     """Exports all major tables to a dictionary for backup purposes."""
+    ALLOWED_TABLES = {"users", "classes", "lessons", "invite_codes", "settings"}
     backup = {}
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            tables = ["users", "classes", "lessons", "invite_codes", "settings"]
-            for table in tables:
-                cursor.execute(f"SELECT * FROM {table}")
+            for table in ALLOWED_TABLES:
+                cursor.execute(f"SELECT * FROM `{table}`")
                 backup[table] = cursor.fetchall()
     return backup

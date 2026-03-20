@@ -8,9 +8,10 @@ import db
 app = FastAPI()
 
 # Enable CORS for React Dev Server
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,6 +116,10 @@ async def api_get_schedule(request: Request, class_code: str):
     if not get_current_admin(request):
         raise HTTPException(status_code=401)
     
+    class_code = db.normalize_class_code(class_code)
+    if not class_code:
+        raise HTTPException(status_code=400, detail="class_code required")
+    
     # 5 days, 8 lessons max
     matrix = [["" for _ in range(5)] for _ in range(10)]
     
@@ -141,7 +146,7 @@ async def api_save_schedule(request: Request, payload: dict = Body(...)):
     if not get_current_admin(request):
         raise HTTPException(status_code=401)
     
-    class_code = payload.get("class_code")
+    class_code = db.normalize_class_code(payload.get("class_code"))
     matrix = payload.get("schedule", [])
     
     if not class_code:
