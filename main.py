@@ -717,7 +717,6 @@ async def process_lang(callback: CallbackQuery, state: FSMContext):
         code_data = use_invite_code(pending_code, callback.from_user.id)
         if code_data:
             role = code_data["role"]
-            role_label = t(ROLE_MAP.get(role, "role_student"), lang)
             await state.update_data(
                 role=role,
                 class_code=code_data["class_code"],
@@ -762,7 +761,6 @@ async def process_invite_code(message: Message, state: FSMContext):
         return
 
     role = code_data["role"]
-    role_label = t(ROLE_MAP.get(role, "role_student"), lang)
     await state.update_data(
         role=role,
         class_code=code_data["class_code"],
@@ -834,13 +832,25 @@ def build_daily_schedule_view(user: dict) -> tuple[str, InlineKeyboardMarkup, bo
     show_day = weekday
     is_tomorrow = False
 
-    # Показываем завтра после ~15:00.
-    if (now_minutes or 0) >= 15 * 60:
-        if weekday >= 4:      # Пятница, Суббота, Воскресенье → Понедельник
-            show_day = 0
-        else:
-            show_day = weekday + 1
+    # Показываем завтра, если все уроки кончились или выходные.
+    if weekday >= 6:
+        show_day = 0
         is_tomorrow = True
+    else:
+        shifts = get_shifts(bell_mode, weekday)
+        shift_data_today = shifts.get(user["shift"], {})
+        last_end = "00:00"
+        for times in shift_data_today.values():
+            if times["end"] > last_end:
+                last_end = times["end"]
+        lessons_today = get_lessons(user.get("class_code", ""), weekday)
+        all_done = (not lessons_today) or (now_minutes is not None and hhmm_to_minutes(last_end) is not None and now_minutes >= hhmm_to_minutes(last_end))
+        if all_done:
+            if weekday >= 5:  # Суббота → Понедельник
+                show_day = 0
+            else:
+                show_day = weekday + 1
+            is_tomorrow = True
 
     day_names = DAY_NAMES_RU if lang == "ru" else DAY_NAMES_KK
     day_name = day_names[show_day]
@@ -1054,6 +1064,7 @@ async def cmd_profile(callback: CallbackQuery, state: FSMContext):
         lang=LANG_LABEL.get(lang, lang),
     )
     await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=menu_for_user_inline(user))
+    await callback.answer()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1120,6 +1131,11 @@ async def toggle_agg_warn_callback(callback: CallbackQuery):
     ]
     agg_warn_text = t("setting_aggressive_warn_on", lang) if new_val == "on" else t("setting_aggressive_warn_off", lang)
     kb_rows.append([InlineKeyboardButton(text=agg_warn_text, callback_data="toggle_agg_warn")])
+    kb_rows.append([InlineKeyboardButton(
+        text="🔔 " + ("Уведомления" if lang == "ru" else "Хабарламалар"),
+        callback_data="notif_settings",
+    )])
+    kb_rows.append([InlineKeyboardButton(text="🔙 " + ("Назад в меню" if lang == "ru" else "Мәзірге қайту"), callback_data="main_menu_profile")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     
     try:
@@ -1302,7 +1318,6 @@ async def schedule_week(callback: CallbackQuery, state: FSMContext):
 
             lesson_name = ls["lesson_name"]
             if lang == "ru":
-                from translations import LESSON_TRANSLATIONS
                 lesson_name = LESSON_TRANSLATIONS.get(lesson_name, lesson_name)
 
             time_str = f"  <i>{start}–{end}</i>" if start else ""
@@ -1370,7 +1385,6 @@ async def lesson_timer(callback: CallbackQuery, state: FSMContext):
 
     lessons_map = {l["lesson_num"]: l["lesson_name"] for l in get_lessons(class_code, weekday)}
     if lang == "ru":
-        from translations import LESSON_TRANSLATIONS
         lessons_map = {k: LESSON_TRANSLATIONS.get(v, v) for k, v in lessons_map.items()}
 
     # Parse current time

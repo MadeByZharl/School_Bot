@@ -33,11 +33,11 @@ def get_main_menu_text(lang: str, role: str) -> str:
     menu.append("1. " + t("menu_schedule", lang))
     menu.append("2. " + t("menu_profile", lang))
     if lang == "ru":
-        menu.append("3. Сменить язык на Казахский")
+        menu.append("3. 🌍 Сменить язык на Казахский")
     else:
-        menu.append("3. Орыс тіліне ауысу")
+        menu.append("3. 🌍 Орыс тіліне ауысу")
     menu.append("4. " + t("menu_help", lang))
-    menu.append("5. " + ("Расписание на неделю" if lang == "ru" else "Апталық кесте"))
+    menu.append("5. 📅 " + ("Расписание на неделю" if lang == "ru" else "Апталық кесте"))
     if role in ("teacher", "zavuch"):
         menu.append("6. " + t("menu_gen_student_code", lang))
         menu.append("7. " + t("menu_my_codes", lang))
@@ -47,8 +47,8 @@ def get_main_menu_text(lang: str, role: str) -> str:
         else:
             menu.append("8. " + t("menu_send_class", lang))
     
-    header = "*Меню*\n" if lang == "ru" else "*Мәзір*\n"
-    footer = "\n" + ("Поддержка → @tiktakeralihan" if lang == "ru" else "Қолдау → @tiktakeralihan")
+    header = "📱 *Меню*" if lang == "ru" else "📱 *Мәзір*"
+    footer = "\n" + ("💬 Поддержка → @tiktakeralihan" if lang == "ru" else "💬 Қолдау → @tiktakeralihan")
     return header + "\n" + "\n".join(menu) + "\n" + footer
 
 def handle_schedule(wa_id: int, user: dict):
@@ -73,7 +73,7 @@ def handle_schedule(wa_id: int, user: dict):
                 last_end = times["end"]
                 
         if now_time >= last_end:
-            if weekday >= 4:  # Пятница/Суббота → Понедельник
+            if weekday >= 5:  # Суббота → Понедельник
                 show_day = 0
             else:
                 show_day = weekday + 1
