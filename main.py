@@ -2301,11 +2301,23 @@ def _build_evening_tomorrow_text(user: dict, bell_mode: str, weekday: int) -> st
 
 
 async def schedule_notifier():
+    _sent_events: set[str] = set()  # дедупликация: "YYYY-MM-DD|shift|lesson|event"
+    _last_checked_minute: str = ""
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(20)  # проверяем каждые 20 сек, чтобы не пропускать минуты
         try:
             now = datetime.now(ALMATY_TZ)
             now_time = now.strftime("%H:%M")
+
+            # Если эту минуту уже обрабатывали — пропускаем
+            if now_time == _last_checked_minute:
+                continue
+            _last_checked_minute = now_time
+
+            # Очистка кеша дедупликации каждый день в 00:00
+            if now_time == "00:00":
+                _sent_events.clear()
+
             weekday = now.weekday()
             bell_mode = get_setting("bell_mode", "standard")
 
@@ -2333,6 +2345,16 @@ async def schedule_notifier():
                                 pre_lesson_time = (start_dt - timedelta(minutes=offset)).strftime("%H:%M")
                                 if now_time == pre_lesson_time:
                                     triggered_events.append((shift_num, lesson_num, "warning", times, offset))
+
+            # Дедупликация: отбрасываем уже отправленные события
+            day_key = now.strftime("%Y-%m-%d")
+            deduped_events = []
+            for ev in triggered_events:
+                ev_key = f"{day_key}|{ev[0]}|{ev[1]}|{ev[2]}|{ev[4]}"
+                if ev_key not in _sent_events:
+                    _sent_events.add(ev_key)
+                    deduped_events.append(ev)
+            triggered_events = deduped_events
 
             evening_digest_due = (now_time == EVENING_DIGEST_TIME)
             if not triggered_events and not evening_digest_due:
