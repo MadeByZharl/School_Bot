@@ -2348,6 +2348,267 @@ async def easter_friday(message: Message):
     await message.answer("🎉🎉🎉\n\n<b>ПЯТНИЦА!</b>\n\nОсталось пережить уроки — и свобода! 🕺", parse_mode=ParseMode.HTML)
 
 
+@router.message(Command("rate"))
+async def easter_rate(message: Message):
+    """Random grade generator."""
+    grade = _rng.choices([2, 3, 4, 5], weights=[5, 15, 35, 45])[0]
+    emojis = {2: "💀", 3: "😬", 4: "😊", 5: "🔥"}
+    comments = {
+        2: "Ну... бывает. Учебник открой хотя бы 📖",
+        3: "Тройка — стабильность! Но можно лучше 💪",
+        4: "Хорошо! Чуть-чуть до пятёрки! ✨",
+        5: "ОТЛИЧНО! Ты гений! 🧠👑",
+    }
+    await message.answer(
+        f"{emojis[grade]} Твоя оценка: <b>{grade}</b>\n\n<i>{comments[grade]}</i>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.message(Command("excuse"))
+async def easter_excuse(message: Message):
+    """Random homework excuse."""
+    excuses = [
+        "🐕 Собака съела мою домашку!",
+        "💻 Компьютер обновлялся 12 часов...",
+        "👽 Инопланетяне похитили мою тетрадь",
+        "🌪 Ветер унёс листочки по дороге в школу",
+        "🔋 Телефон сел, а домашка была в нём",
+        "😴 Я делал домашку во сне, но забыл записать",
+        "🧊 Тетрадь замёрзла на морозе и текст исчез",
+        "📱 WhatsApp не загрузил фото задания",
+        "🤖 ИИ сказал что домашка необязательная",
+        "⚡ Свет выключили ровно в 20:00",
+        "🎮 Мне нужно было спасти мир в Minecraft",
+        "📚 Я читал другой учебник... случайно...",
+    ]
+    await message.answer(
+        f"📝 <b>Отмазка дня:</b>\n\n<i>{_rng.choice(excuses)}</i>\n\n⚠️ <i>Мы не несём ответственности за последствия</i>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.message(Command("rps"))
+async def easter_rps(message: Message):
+    """Rock-paper-scissors."""
+    bot_choice = _rng.choice(["камень", "ножницы", "бумага"])
+    emojis = {"камень": "🪨", "ножницы": "✂️", "бумага": "📄"}
+    await message.answer(
+        f"Я выбрал: {emojis[bot_choice]} <b>{bot_choice}</b>!\n\n"
+        f"Напиши камень, ножницы или бумагу в ответ ✊✌️🖐",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.message(F.text.lower().in_({"камень", "ножницы", "бумага"}))
+async def easter_rps_play(message: Message):
+    """RPS result."""
+    user_choice = message.text.lower()
+    bot_choice = _rng.choice(["камень", "ножницы", "бумага"])
+    emojis = {"камень": "🪨", "ножницы": "✂️", "бумага": "📄"}
+
+    if user_choice == bot_choice:
+        result = "🤝 <b>Ничья!</b>"
+    elif (user_choice == "камень" and bot_choice == "ножницы") or \
+         (user_choice == "ножницы" and bot_choice == "бумага") or \
+         (user_choice == "бумага" and bot_choice == "камень"):
+        result = "🎉 <b>Ты победил!</b> Красавчик!"
+    else:
+        result = "😈 <b>Я победил!</b> Не расстраивайся!"
+
+    await message.answer(
+        f"Ты: {emojis[user_choice]}  vs  Бот: {emojis[bot_choice]}\n\n{result}",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.message(Command("love"))
+async def easter_love(message: Message):
+    """Love calculator."""
+    percent = _rng.randint(1, 100)
+    if percent < 20:
+        bar = "💔💔💔💔💔"
+        comment = "Не судьба... 😢"
+    elif percent < 50:
+        bar = "❤️💔💔💔💔"
+        comment = "Есть шанс! 🤞"
+    elif percent < 75:
+        bar = "❤️❤️❤️💔💔"
+        comment = "Почти! 😍"
+    elif percent < 95:
+        bar = "❤️❤️❤️❤️💔"
+        comment = "Любовь витает в воздухе! 💕"
+    else:
+        bar = "❤️❤️❤️❤️❤️"
+        comment = "ИДЕАЛЬНАЯ ПАРА! 💍"
+
+    await message.answer(
+        f"💘 <b>Калькулятор любви</b>\n\n"
+        f"{bar}\n"
+        f"Совместимость: <b>{percent}%</b>\n\n"
+        f"<i>{comment}</i>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.message(Command("who"))
+async def easter_who(message: Message):
+    """Random 'who' picker."""
+    things = [
+        "будет отвечать у доски",
+        "забудет домашку",
+        "получит пятёрку",
+        "уснёт на уроке",
+        "станет директором",
+        "будет миллионером",
+        "выиграет олимпиаду",
+        "опоздает завтра",
+        "съест в столовой 3 порции",
+        "первым сдаст контрольную",
+    ]
+    await message.answer(
+        f"🎯 <b>Кто сегодня {_rng.choice(things)}?</b>\n\n"
+        f"<i>Отправь это в групповой чат и узнай! 😏</i>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@router.message(Command("fact"))
+async def easter_fact(message: Message):
+    """Fun school fact."""
+    facts = [
+        "🧠 Мозг потребляет 20% всей энергии тела, хотя весит всего 2%",
+        "📚 Самая длинная книга — «В поисках утраченного времени» — 9 609 000 символов",
+        "🔢 Число 111,111,111 × 111,111,111 = 12345678987654321",
+        "🌍 В школах Финляндии нет домашних заданий до 16 лет",
+        "⚡ Мозг генерирует электричество — хватит чтобы зажечь лампочку!",
+        "📖 Средний ученик за 12 лет проводит в школе 15 000 часов",
+        "🐙 У осьминога 3 сердца и голубая кровь",
+        "🌡 Температура молнии — 30 000°C, это в 5 раз горячее Солнца",
+        "🎵 Музыка помогает запоминать информацию на 40% лучше",
+        "💡 Эйнштейн не мог запомнить свой номер телефона",
+        "🧮 Слово «алгебра» пришло из арабского — «аль-джабр» (восстановление)",
+        "🏫 Первая школа появилась в Шумере 5500 лет назад",
+    ]
+    await message.answer(f"💡 <b>Факт дня:</b>\n\n{_rng.choice(facts)}", parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("flip"))
+async def easter_flip(message: Message):
+    """Flip text upside down."""
+    text = message.text.replace("/flip", "").strip() or "Привет"
+    flip_map = str.maketrans(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "ɐqɔpǝɟƃɥᴉɾʞlɯuodbɹsʇnʌʍxʎz∀qƆpƎℲ⅁HIſʞ˥WNOԀQɹS⊥∩ΛMX⅄Z"
+    )
+    flipped = text.translate(flip_map)[::-1]
+    await message.answer(f"🙃 {flipped}")
+
+
+# ── Keyword reactions ──
+
+@router.message(F.text.lower().contains("домашка"))
+async def easter_homework(message: Message):
+    replies = [
+        "📝 Домашка? Какая домашка? Я ничего не видел... 👀",
+        "📚 Домашка — это добровольное приключение! ... правда?",
+        "😤 Домашка придумана для того, чтобы мы не скучали!",
+        "🤓 Домашка = 10% знаний, 90% страданий",
+    ]
+    await message.answer(_rng.choice(replies))
+
+
+@router.message(F.text.lower().contains("спать"))
+async def easter_sleep(message: Message):
+    replies = [
+        "😴 Zzz... Подожди, я тоже задремал...",
+        "🛏 Сон — лучший предмет в школе!",
+        "💤 8 часов сна = 5 по контрольной. Наука!",
+        "😪 Если ты хочешь спать — значит мозг устал учиться. Или не начинал.",
+    ]
+    await message.answer(_rng.choice(replies))
+
+
+@router.message(F.text.lower().contains("скучно"))
+async def easter_bored(message: Message):
+    replies = [
+        "🥱 Скучно? Попробуй /hack — взломай школу!",
+        "🎲 Скучно? Кинь /dice или /coin!",
+        "🎱 Задай вопрос судьбе — /8ball",
+        "📝 Скучно? Сгенерируй отмазку — /excuse",
+        "💘 Скучно? Проверь любовь — /love",
+        "🧠 Скучно? Узнай факт — /fact",
+    ]
+    await message.answer(_rng.choice(replies))
+
+
+@router.message(F.text.lower().contains("спасибо"))
+async def easter_thanks(message: Message):
+    replies = [
+        "☺️ Всегда пожалуйста!",
+        "🤗 Обращайся!",
+        "💪 Рад помочь!",
+        "🫡 Служу школьникам!",
+        "😊 Не за что! Учись на 5!",
+    ]
+    await message.answer(_rng.choice(replies))
+
+
+@router.message(F.text.lower().in_({"привет", "салем", "хай", "hello", "hi", "сәлем"}))
+async def easter_hello(message: Message):
+    user = cached_get_user(message.from_user.id)
+    name = user["full_name"] if user else "друг"
+    greetings = [
+        f"👋 Привет, <b>{name}</b>! Как дела?",
+        f"🫡 Салют, <b>{name}</b>!",
+        f"✌️ Йоу, <b>{name}</b>! Готов к урокам?",
+        f"😎 Здарова, <b>{name}</b>! Что новенького?",
+    ]
+    await message.answer(_rng.choice(greetings), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().in_({"пока", "бай", "bye", "сау бол"}))
+async def easter_bye(message: Message):
+    replies = [
+        "👋 Пока! Не забудь домашку!",
+        "✌️ Бай! Увидимся на уроке!",
+        "😢 Уходишь? Ладно... <i>*грустит*</i>",
+        "🫡 До встречи, солдат знаний!",
+    ]
+    await message.answer(_rng.choice(replies), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().contains("столовая"))
+async def easter_food(message: Message):
+    replies = [
+        "🍽 Столовая... Место где мечты о еде разбиваются о запеканку",
+        "🥘 В столовой сегодня... а впрочем, лучше не знать 😂",
+        "🍕 Мечта любого школьника — пицца в столовой!",
+        "🫣 Компот из столовой = зелье храбрости",
+    ]
+    await message.answer(_rng.choice(replies))
+
+
+@router.message(F.text.lower().contains("контрольная"))
+async def easter_test(message: Message):
+    replies = [
+        "📝 Контрольная? Главное не паниковать! ... <i>*паникует*</i>",
+        "😨 КОНТРОЛЬНАЯ?! Я... я не готов!",
+        "🧘 Вдох-выдох... Ты всё знаешь... наверное...",
+        "🍀 Удачи на контрольной! Вот тебе клевер!",
+        "🙏 Пусть учитель забудет про контрольную. Аминь.",
+    ]
+    await message.answer(_rng.choice(replies), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.sticker)
+async def easter_sticker(message: Message):
+    """React to stickers."""
+    reactions = ["😄", "👍", "🤣", "🔥", "❤️", "😎", "🤔", "👀"]
+    if _rng.random() < 0.3:  # 30% chance to react
+        await message.answer(_rng.choice(reactions))
+
+
 @router.message()
 async def any_other_message(message: Message):
     # Ignore unhandled text to prevent console spam
