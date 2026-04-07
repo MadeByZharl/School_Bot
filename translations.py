@@ -80,8 +80,8 @@ TEXTS = {
         "kk": "💰 <b>{name}</b> төлем жасады\n🆔 <code>{tg_id}</code>\n\n💳 Kaspi-де тексер.",
     },
     "lesson_start": {
-        "ru": "🟢 Урок начался — <b>{name}</b>\n🕒 #{num} · {start}–{end}",
-        "kk": "🟢 Сабақ басталды — <b>{name}</b>\n🕒 #{num} · {start}–{end}",
+        "ru": "🟢 Урок начался — <b>{name}</b>\n🕒 #{num} · {start}–{end}{next}",
+        "kk": "🟢 Сабақ басталды — <b>{name}</b>\n🕒 #{num} · {start}–{end}{next}",
     },
     "lesson_warning": {
         "ru": "⚠️ До урока <b>{name}</b> {minutes} мин. 🏃 Бегом в класс!",

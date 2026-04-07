@@ -2432,11 +2432,21 @@ async def schedule_notifier():
 
                         lang = user["lang"]
                         if event_type == "start":
+                            # Следующий урок
+                            next_num = lesson_num + 1
+                            next_name = lessons_map.get(next_num)
+                            if next_name:
+                                if lang == "ru":
+                                    next_name = LESSON_TRANSLATIONS.get(next_name, next_name)
+                                next_text = f"\n▶️ Следующий: <b>{next_name}</b>" if lang == "ru" else f"\n▶️ Келесі: <b>{next_name}</b>"
+                            else:
+                                next_text = "\n🏁 Последний урок!" if lang == "ru" else "\n🏁 Соңғы сабақ!"
                             text = t("lesson_start", lang).format(
                                 num=lesson_num,
                                 name=lessons_map[lesson_num],
                                 start=times["start"],
                                 end=times["end"],
+                                next=next_text,
                             )
                         elif event_type == "warning":
                             if aggressive_warning == "on":
