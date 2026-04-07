@@ -22,7 +22,7 @@ from typing import Callable, Dict, Any, Awaitable
 from cachetools import TTLCache
 
 from db import (
-    init_db, seed_demo_data, add_user, get_user,
+    init_db, add_user, get_user,
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
     create_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
@@ -127,6 +127,18 @@ router = Router()
 spam_cache = TTLCache(maxsize=2000, ttl=0.3)
 warning_cache = TTLCache(maxsize=2000, ttl=2.0)
 
+# Fast user lookup cache (avoids DB hit on every message)
+_user_cache = TTLCache(maxsize=5000, ttl=30)
+
+def cached_get_user(tg_id: int):
+    """Get user with 30s TTL cache — used in anti-spam middleware."""
+    if tg_id in _user_cache:
+        return _user_cache[tg_id]
+    u = get_user(tg_id)
+    if u:
+        _user_cache[tg_id] = u
+    return u
+
 # Stores last notification message_id per user to delete before sending new one
 _last_notif = TTLCache(maxsize=20000, ttl=60 * 60 * 24 * 2)
 # Active opened daily schedule messages for minute-by-minute refresh.
@@ -155,7 +167,7 @@ class AntiSpamMiddleware(BaseMiddleware):
             # If they haven't been warned recently, warn them
             if user_id not in warning_cache:
                 warning_cache[user_id] = True
-                user = get_user(user_id)
+                user = cached_get_user(user_id)
                 lang = user["lang"] if user else "ru"
                 
                 if isinstance(event, Message):

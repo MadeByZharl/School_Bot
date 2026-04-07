@@ -5,6 +5,7 @@ import random
 from datetime import datetime, timedelta
 import os
 import re
+from queue import Queue, Empty
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,6 +15,45 @@ DB_PORT = int(os.getenv("DB_PORT", 3306))
 DB_USER = os.getenv("DB_USER", "u21319_qwgUvpiitb")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "s21319_TgBot")
+
+# ── Connection pool ──
+_pool = Queue(maxsize=10)
+
+def _create_conn():
+    return pymysql.connect(
+        host=DB_HOST, port=DB_PORT, user=DB_USER,
+        password=DB_PASSWORD, database=DB_NAME,
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True, connect_timeout=5,
+        read_timeout=10, write_timeout=10,
+    )
+
+def get_connection():
+    """Get a connection from pool or create new."""
+    try:
+        conn = _pool.get_nowait()
+        try:
+            conn.ping(reconnect=True)
+            return conn
+        except Exception:
+            try: conn.close()
+            except: pass
+    except Empty:
+        pass
+    return _create_conn()
+
+def release_connection(conn):
+    """Return connection to pool for reuse."""
+    if conn is None:
+        return
+    try:
+        if conn.open:
+            _pool.put_nowait(conn)
+        else:
+            conn.close()
+    except Exception:
+        try: conn.close()
+        except: pass
 
 
 def normalize_class_code(class_code: str | None) -> str | None:
@@ -25,17 +65,6 @@ def normalize_class_code(class_code: str | None) -> str | None:
 
 def _normalized_class_sql(column_name: str = "class_code") -> str:
     return f"REPLACE(REPLACE(REPLACE(UPPER({column_name}), ' ', ''), '\"', ''), \"'\", '')"
-
-def get_connection():
-    return pymysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=True
-    )
 
 def init_db():
     queries = [
@@ -145,11 +174,14 @@ def seed_demo_data():
 
 
 def get_setting(key: str, default: str = "") -> str:
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT `value` FROM settings WHERE `key` = %s", (key,))
             row = cursor.fetchone()
             return row["value"] if row else default
+    finally:
+        release_connection(conn)
 
 
 def set_setting(key: str, value: str):
@@ -306,10 +338,13 @@ def delete_user(tg_id: int):
 
 
 def get_user(tg_id: int):
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE tg_id = %s", (tg_id,))
             return cursor.fetchone()
+    finally:
+        release_connection(conn)
 
 
 def is_subscription_active(tg_id: int) -> bool:
@@ -469,7 +504,8 @@ def update_single_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_
 
 def get_lessons(class_code: str, day_idx: int):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM lessons WHERE class_code = %s AND day_idx = %s ORDER BY lesson_num",
@@ -489,6 +525,8 @@ def get_lessons(class_code: str, day_idx: int):
                 (normalized_class_code, day_idx),
             )
             return cursor.fetchall()
+    finally:
+        release_connection(conn)
 
 def get_all_subjects():
     with get_connection() as conn:
