@@ -2243,6 +2243,99 @@ async def legacy_menu_fallback(message: Message, state: FSMContext):
         pass
     await state.update_data(main_msg_id=msg2.message_id)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🥚 ПАСХАЛКИ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+import random as _rng
+
+@router.message(Command("hack"))
+async def easter_hack(message: Message):
+    """Fake hacking animation."""
+    msg = await message.answer("🖥 <code>Инициализация взлома...</code>", parse_mode=ParseMode.HTML)
+    await asyncio.sleep(1)
+    await msg.edit_text("🖥 <code>Инициализация взлома...\n[██░░░░░░░░] 15%</code>", parse_mode=ParseMode.HTML)
+    await asyncio.sleep(1)
+    await msg.edit_text("🖥 <code>Инициализация взлома...\n[████░░░░░░] 40%\nОбход файрвола школы...</code>", parse_mode=ParseMode.HTML)
+    await asyncio.sleep(1)
+    await msg.edit_text("🖥 <code>Инициализация взлома...\n[███████░░░] 70%\nОбход файрвола школы...\nВзлом оценок...</code>", parse_mode=ParseMode.HTML)
+    await asyncio.sleep(1)
+    await msg.edit_text("🖥 <code>Инициализация взлома...\n[██████████] 99%\nОбход файрвола школы...\nВзлом оценок...\n\n⚠️ ОБНАРУЖЕН ЗАВУЧ!</code>", parse_mode=ParseMode.HTML)
+    await asyncio.sleep(1)
+    await msg.edit_text("😂 <b>Шучу!</b>\n\nУчи уроки, хакер 📚", parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("coin"))
+async def easter_coin(message: Message):
+    """Coin flip."""
+    result = _rng.choice(["🪙 <b>Орёл!</b>", "🪙 <b>Решка!</b>", "😱 <b>Монетка встала на ребро!</b> (1 из 6000)"])
+    await message.answer(result, parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("dice"))
+async def easter_dice(message: Message):
+    """Roll a dice."""
+    faces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"]
+    n = _rng.randint(0, 5)
+    await message.answer(f"🎲 {faces[n]} — выпало <b>{n+1}</b>!", parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("8ball"))
+async def easter_8ball(message: Message):
+    """Magic 8-ball."""
+    answers = [
+        "🎱 Однозначно да!",
+        "🎱 Скорее да",
+        "🎱 Без сомнений!",
+        "🎱 Спроси у завуча 😏",
+        "🎱 Не сейчас...",
+        "🎱 Даже не думай",
+        "🎱 100%!",
+        "🎱 Лучше подготовься к уроку",
+        "🎱 Звёзды говорят — да ⭐",
+        "🎱 Пятёрка обеспечена!",
+        "🎱 Нет, и домашку сделай",
+        "🎱 Попробуй после каникул",
+    ]
+    await message.answer(_rng.choice(answers))
+
+
+@router.message(Command("wisdom"))
+async def easter_wisdom(message: Message):
+    """Random school wisdom."""
+    wisdoms = [
+        "📖 <i>«Образование — лучший друг. Образованного человека уважают везде.»</i>\n— Чанакья",
+        "🧠 <i>«Учись так, словно будешь жить вечно.»</i>\n— Махатма Ганди",
+        "🎓 <i>«Корень учения горек, а плод его сладок.»</i>\n— Аристотель",
+        "💡 <i>«Знание — сила.»</i>\n— Фрэнсис Бэкон",
+        "🌟 <i>«Тот, кто учится, но не думает — потерян.»</i>\n— Конфуций",
+        "📚 <i>«Я знаю, что ничего не знаю.»</i>\n— Сократ",
+        "🔥 <i>«Нет ничего невозможного. Само слово говорит «Я возможно!»»</i>\n— Одри Хепбёрн",
+        "⏰ <i>«Не откладывай на завтра то, что можно сделать сегодня.»</i>\n— Бенджамин Франклин",
+    ]
+    await message.answer(_rng.choice(wisdoms), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().contains("бот ты тупой"))
+async def easter_bot_stupid(message: Message):
+    replies = [
+        "😤 Я не тупой, я просто... <i>творческий!</i>",
+        "🤖 Error 404: обида не найдена. Но домашку проверю!",
+        "😎 Я бот, а ты домашку сделал?",
+        "🥲 Больно. Но я всё равно покажу тебе расписание.",
+    ]
+    await message.answer(_rng.choice(replies), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().contains("каникулы"))
+async def easter_holidays(message: Message):
+    await message.answer("🏖 <b>Каникулы...</b>\n\n<i>*мечтательно смотрит в окно*</i>\n\nА пока — учись! 📚", parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().in_({"пятница", "жұма", "ура пятница", "friday"}))
+async def easter_friday(message: Message):
+    await message.answer("🎉🎉🎉\n\n<b>ПЯТНИЦА!</b>\n\nОсталось пережить уроки — и свобода! 🕺", parse_mode=ParseMode.HTML)
+
+
 @router.message()
 async def any_other_message(message: Message):
     # Ignore unhandled text to prevent console spam
