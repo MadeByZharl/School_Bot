@@ -2,11 +2,13 @@ import pymysql
 import pymysql.cursors
 import string
 import random
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 import os
 import re
 from queue import Queue, Empty
 from dotenv import load_dotenv
+from cachetools import TTLCache
 
 load_dotenv()
 
@@ -54,6 +56,41 @@ def release_connection(conn):
     except Exception:
         try: conn.close()
         except: pass
+
+
+@contextmanager
+def pooled_connection():
+    """Context manager that properly returns connection to pool."""
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        release_connection(conn)
+
+
+# ── In-process caches ──
+_user_cache = TTLCache(maxsize=5000, ttl=60)
+_settings_cache = TTLCache(maxsize=100, ttl=120)
+_lessons_cache = TTLCache(maxsize=2000, ttl=300)
+_all_users_cache = TTLCache(maxsize=1, ttl=30)  # scheduler calls every minute, cache 30s
+
+
+def invalidate_user_cache(tg_id: int):
+    _user_cache.pop(tg_id, None)
+
+
+def invalidate_lessons_cache(class_code: str | None = None):
+    if class_code is None:
+        _lessons_cache.clear()
+    else:
+        norm = normalize_class_code(class_code)
+        to_remove = [k for k in _lessons_cache if k[0] == norm]
+        for k in to_remove:
+            _lessons_cache.pop(k, None)
+
+
+def invalidate_settings_cache():
+    _settings_cache.clear()
 
 
 def normalize_class_code(class_code: str | None) -> str | None:
@@ -126,7 +163,7 @@ def init_db():
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         """,
     ]
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             for q in queries:
                 cursor.execute(q)
@@ -137,7 +174,7 @@ def init_db():
 
 
 def seed_demo_data():
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "INSERT IGNORE INTO classes (class_code, class_name, shift) VALUES (%s, %s, %s)",
@@ -174,27 +211,29 @@ def seed_demo_data():
 
 
 def get_setting(key: str, default: str = "") -> str:
-    conn = get_connection()
-    try:
+    if key in _settings_cache:
+        return _settings_cache[key]
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT `value` FROM settings WHERE `key` = %s", (key,))
             row = cursor.fetchone()
-            return row["value"] if row else default
-    finally:
-        release_connection(conn)
+            val = row["value"] if row else default
+            _settings_cache[key] = val
+            return val
 
 
 def set_setting(key: str, value: str):
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "REPLACE INTO settings (`key`, `value`) VALUES (%s, %s)",
                 (key, value),
             )
+    _settings_cache[key] = value
 
 
 def get_user_setting(tg_id: int, key: str, default: str = "on") -> str:
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT setting_value FROM user_settings WHERE tg_id = %s AND setting_key = %s",
@@ -220,7 +259,7 @@ def get_user_settings_bulk(tg_ids: list[int], keys: list[str]) -> dict[int, dict
     )
 
     result: dict[int, dict[str, str]] = {}
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(query, tuple(uniq_ids + uniq_keys))
             for row in cursor.fetchall():
@@ -232,7 +271,7 @@ def get_user_settings_bulk(tg_ids: list[int], keys: list[str]) -> dict[int, dict
 
 
 def set_user_setting(tg_id: int, key: str, value: str):
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "REPLACE INTO user_settings (tg_id, setting_key, setting_value) VALUES (%s, %s, %s)",
@@ -242,13 +281,14 @@ def set_user_setting(tg_id: int, key: str, value: str):
 
 def generate_code(length: int = 8) -> str:
     chars = string.ascii_uppercase + string.digits
-    while True:
+    for _ in range(100):
         code = "".join(random.choices(chars, k=length))
-        with get_connection() as conn:
+        with pooled_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT code FROM invite_codes WHERE code = %s", (code,))
                 if not cursor.fetchone():
                     return code
+    raise RuntimeError("Failed to generate unique invite code after 100 attempts")
 
 
 def create_invite_code(role: str, class_code: str, shift: int,
@@ -256,7 +296,7 @@ def create_invite_code(role: str, class_code: str, shift: int,
     code = generate_code()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """INSERT INTO invite_codes
@@ -267,8 +307,23 @@ def create_invite_code(role: str, class_code: str, shift: int,
     return code
 
 
+def validate_invite_code(code: str) -> dict | None:
+    """Check if invite code is valid without consuming it."""
+    with pooled_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM invite_codes WHERE code = %s AND is_active = 1",
+                (code,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            row["class_code"] = normalize_class_code(row.get("class_code"))
+            return row
+
+
 def use_invite_code(code: str, tg_id: int) -> dict | None:
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM invite_codes WHERE code = %s AND is_active = 1",
@@ -297,7 +352,7 @@ def use_invite_code(code: str, tg_id: int) -> dict | None:
 
 
 def get_codes_by_creator(created_by: int):
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM invite_codes WHERE created_by = %s ORDER BY created_at DESC",
@@ -307,7 +362,7 @@ def get_codes_by_creator(created_by: int):
 
 
 def get_active_codes_by_creator(created_by: int):
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM invite_codes WHERE created_by = %s AND is_active = 1 ORDER BY created_at DESC",
@@ -320,7 +375,7 @@ def add_user(tg_id: int, full_name: str, role: str, lang: str,
              class_code: str = None, shift: int = 1, platform: str = "telegram") -> dict:
     trial_end = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """REPLACE INTO users
@@ -328,23 +383,29 @@ def add_user(tg_id: int, full_name: str, role: str, lang: str,
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (tg_id, full_name, role, lang, normalized_class_code, shift, trial_end, platform),
             )
+    invalidate_user_cache(tg_id)
+    _all_users_cache.pop("all", None)
     return get_user(tg_id)
 
 
 def delete_user(tg_id: int):
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM users WHERE tg_id = %s", (tg_id,))
+    invalidate_user_cache(tg_id)
+    _all_users_cache.pop("all", None)
 
 
 def get_user(tg_id: int):
-    conn = get_connection()
-    try:
+    if tg_id in _user_cache:
+        return _user_cache[tg_id]
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE tg_id = %s", (tg_id,))
-            return cursor.fetchone()
-    finally:
-        release_connection(conn)
+            user = cursor.fetchone()
+            if user:
+                _user_cache[tg_id] = user
+            return user
 
 
 def is_subscription_active(tg_id: int) -> bool:
@@ -363,17 +424,18 @@ def extend_subscription(tg_id: int, days: int = 30):
     if current_end.date() < datetime.now().date():
         current_end = datetime.now()
     new_end = (current_end + timedelta(days=days)).strftime("%Y-%m-%d")
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "UPDATE users SET sub_end_date = %s WHERE tg_id = %s",
                 (new_end, tg_id),
             )
+    invalidate_user_cache(tg_id)
 
 
 def get_active_users(shift: int = None):
     today = datetime.now().strftime("%Y-%m-%d")
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             if shift:
                 cursor.execute(
@@ -389,15 +451,20 @@ def get_active_users(shift: int = None):
 
 
 def get_all_users():
-    with get_connection() as conn:
+    cached = _all_users_cache.get("all")
+    if cached is not None:
+        return cached
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM users")
-            return cursor.fetchall()
+            result = cursor.fetchall()
+    _all_users_cache["all"] = result
+    return result
 
 
 def get_users_by_class(class_code: str):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM users WHERE {_normalized_class_sql('class_code')} = %s",
@@ -408,7 +475,7 @@ def get_users_by_class(class_code: str):
 
 def add_class(class_code: str, class_name: str, shift: int):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "REPLACE INTO classes (class_code, class_name, shift) VALUES (%s, %s, %s)",
@@ -418,7 +485,7 @@ def add_class(class_code: str, class_name: str, shift: int):
 
 def get_class(class_code: str):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM classes WHERE class_code = %s", (normalized_class_code,))
             row = cursor.fetchone()
@@ -431,7 +498,7 @@ def get_class(class_code: str):
             return cursor.fetchone()
 
 def get_all_classes():
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT class_code FROM classes ORDER BY class_code ASC")
             classes = []
@@ -446,36 +513,39 @@ def get_all_classes():
 
 def delete_lessons(class_code: str, day_idx: int):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s",
                 (normalized_class_code, day_idx),
             )
+    invalidate_lessons_cache(class_code)
 
 def delete_single_lesson(class_code: str, day_idx: int, lesson_num: int):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s AND lesson_num = %s",
                 (normalized_class_code, day_idx, lesson_num),
             )
+    invalidate_lessons_cache(class_code)
 
 
 def add_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
                 (normalized_class_code, day_idx, lesson_num, lesson_name),
             )
+    invalidate_lessons_cache(class_code)
 
 def set_weekly_schedule(class_code: str, schedule: dict):
     # schedule format: {0: ["Math", "Physics"], 1: ["History", "PE", "Chemistry"]}
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s",
@@ -487,10 +557,11 @@ def set_weekly_schedule(class_code: str, schedule: dict):
                         "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
                         (normalized_class_code, day_idx, num, str(name).strip())
                     )
+    invalidate_lessons_cache(class_code)
 
 def update_single_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_name: str):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM lessons WHERE {_normalized_class_sql('class_code')} = %s AND day_idx = %s AND lesson_num = %s",
@@ -500,12 +571,15 @@ def update_single_lesson(class_code: str, day_idx: int, lesson_num: int, lesson_
                 "INSERT INTO lessons (class_code, day_idx, lesson_num, lesson_name) VALUES (%s, %s, %s, %s)",
                 (normalized_class_code, day_idx, lesson_num, lesson_name),
             )
+    invalidate_lessons_cache(class_code)
 
 
 def get_lessons(class_code: str, day_idx: int):
     normalized_class_code = normalize_class_code(class_code)
-    conn = get_connection()
-    try:
+    cache_key = (normalized_class_code, day_idx)
+    if cache_key in _lessons_cache:
+        return _lessons_cache[cache_key]
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM lessons WHERE class_code = %s AND day_idx = %s ORDER BY lesson_num",
@@ -513,6 +587,7 @@ def get_lessons(class_code: str, day_idx: int):
             )
             rows = cursor.fetchall()
             if rows:
+                _lessons_cache[cache_key] = rows
                 return rows
             cursor.execute(
                 f"""
@@ -524,12 +599,12 @@ def get_lessons(class_code: str, day_idx: int):
                 """,
                 (normalized_class_code, day_idx),
             )
-            return cursor.fetchall()
-    finally:
-        release_connection(conn)
+            result = cursor.fetchall()
+            _lessons_cache[cache_key] = result
+            return result
 
 def get_all_subjects():
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT DISTINCT lesson_name FROM lessons WHERE lesson_name != '' AND lesson_name IS NOT NULL ORDER BY lesson_name LIMIT 50"
@@ -539,7 +614,7 @@ def get_all_subjects():
 
 def get_class_subjects(class_code: str):
     normalized_class_code = normalize_class_code(class_code)
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -570,9 +645,10 @@ def get_class_subjects(class_code: str):
 
 
 def update_user_lang(tg_id: int, lang: str):
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("UPDATE users SET lang = %s WHERE tg_id = %s", (lang, tg_id))
+    invalidate_user_cache(tg_id)
 
 
 def format_class(class_code: str) -> str:
@@ -588,7 +664,7 @@ def format_class(class_code: str) -> str:
 
 def get_bot_stats():
     """Returns a dictionary with total users, count by role, and count by class."""
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             # Total users
             cursor.execute("SELECT COUNT(*) as total FROM users")
@@ -615,7 +691,7 @@ def get_full_backup() -> dict:
     """Exports all major tables to a dictionary for backup purposes."""
     ALLOWED_TABLES = {"users", "classes", "lessons", "invite_codes", "settings"}
     backup = {}
-    with get_connection() as conn:
+    with pooled_connection() as conn:
         with conn.cursor() as cursor:
             for table in ALLOWED_TABLES:
                 cursor.execute(f"SELECT * FROM `{table}`")

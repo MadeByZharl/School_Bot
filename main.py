@@ -24,7 +24,7 @@ from cachetools import TTLCache
 from db import (
     init_db, add_user, get_user,
     get_all_users, get_users_by_class, get_lessons, get_all_classes,
-    create_invite_code, use_invite_code, get_active_codes_by_creator,
+    create_invite_code, validate_invite_code, use_invite_code, get_active_codes_by_creator,
     get_setting, set_setting, delete_user, set_weekly_schedule,
     format_class, update_user_lang, get_bot_stats, get_full_backup,
     get_user_setting, get_user_settings_bulk, set_user_setting, get_class_subjects,
@@ -57,7 +57,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7903470823"))
-WEBAPP_URL = "https://your-fastapi-site.com"
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-fastapi-site.com")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "SchoolUshtobeBot")
 
 # Timezone definition
@@ -658,7 +658,7 @@ async def cmd_admin(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     lang = user["lang"] if user else "ru"
     
-    stats = get_bot_stats()
+    stats = await asyncio.to_thread(get_bot_stats)
     res = f"👑 <b>Панель Владельца</b> (SUPERUSER)\n\n"
     res += t("stats_users_total", lang).format(total=stats["total"])
     res += t("stats_roles", lang).format(
@@ -694,7 +694,7 @@ async def cmd_backup(message: Message, state: FSMContext):
     
     await message.answer("🔄 Подготовка резервной копии...")
     try:
-        data = get_full_backup()
+        data = await asyncio.to_thread(get_full_backup)
         # Convert datetime objects to string for JSON serialization
         def default_serializer(obj):
             if hasattr(obj, 'isoformat'):
@@ -726,13 +726,14 @@ async def process_lang(callback: CallbackQuery, state: FSMContext):
     pending_code = data.get("pending_code")
 
     if pending_code:
-        code_data = use_invite_code(pending_code, callback.from_user.id)
+        code_data = validate_invite_code(pending_code)
         if code_data:
             role = code_data["role"]
             await state.update_data(
                 role=role,
                 class_code=code_data["class_code"],
                 shift=code_data["shift"],
+                pending_code=pending_code,
             )
             text_msg = t(f"code_accepted_{role}", lang).format(class_code=format_class(code_data.get("class_code", "")))
             text_msg += "\n\n"
@@ -767,7 +768,7 @@ async def process_invite_code(message: Message, state: FSMContext):
     lang = data["lang"]
     code_text = message.text.strip().upper()
 
-    code_data = use_invite_code(code_text, message.from_user.id)
+    code_data = validate_invite_code(code_text)
     if not code_data:
         await message.answer(t("invalid_code", lang), parse_mode=ParseMode.HTML)
         return
@@ -777,6 +778,7 @@ async def process_invite_code(message: Message, state: FSMContext):
         role=role,
         class_code=code_data["class_code"],
         shift=code_data["shift"],
+        pending_code=code_text,
     )
     text_msg = t(f"code_accepted_{role}", lang).format(class_code=format_class(code_data.get("class_code", "")))
     text_msg += "\n\n"
@@ -802,6 +804,15 @@ async def process_name(message: Message, state: FSMContext):
     else:
         if not validate_fio(name):
             await message.answer(t("invalid_fio", lang), parse_mode=ParseMode.HTML)
+            return
+
+    # Consume the invite code now that registration is confirmed
+    pending_code = data.get("pending_code")
+    if pending_code:
+        consumed = use_invite_code(pending_code, message.from_user.id)
+        if not consumed:
+            await message.answer(t("invalid_code", lang), parse_mode=ParseMode.HTML)
+            await state.clear()
             return
 
     user = add_user(
@@ -1529,7 +1540,7 @@ async def btn_stats(callback: CallbackQuery, state: FSMContext):
         return
 
     lang = user["lang"]
-    stats = get_bot_stats()
+    stats = await asyncio.to_thread(get_bot_stats)
     
     res = t("stats_title", lang)
     res += t("stats_users_total", lang).format(total=stats["total"])
@@ -1973,7 +1984,7 @@ async def broadcast_all_confirm(message: Message, state: FSMContext):
         return
     user = get_user(message.from_user.id)
     lang = user["lang"] if user else "ru"
-    all_users = get_all_users()
+    all_users = await asyncio.to_thread(get_all_users)
     preview = message.text[:200] + ("..." if len(message.text) > 200 else "")
     sender_username = f"@{message.from_user.username}" if message.from_user.username else user["full_name"]
     await state.update_data(
@@ -2179,13 +2190,13 @@ async def broadcast_execute(callback: CallbackQuery, state: FSMContext):
     target = data.get("broadcast_target", "all")
 
     if target == "all":
-        recipients = get_all_users()
+        recipients = await asyncio.to_thread(get_all_users)
         template_key = "broadcast_admin"
         sender_name = data.get("broadcast_sender_name", "Администратор")
         format_args = lambda u_lang: {"name": sender_name, "text": text}
     else:
         class_code = data.get("broadcast_class", "")
-        recipients = get_users_by_class(class_code)
+        recipients = await asyncio.to_thread(get_users_by_class, class_code)
         sender_name = data.get("broadcast_sender_name", "Учитель")
         template_key = "broadcast_teacher"
         format_args = lambda u_lang: {"name": sender_name, "text": text}
@@ -2726,7 +2737,7 @@ async def schedule_notifier():
             if not triggered_events and not evening_digest_due:
                 continue
 
-            all_users = get_all_users()
+            all_users = await asyncio.to_thread(get_all_users)
             if not all_users:
                 continue
 
@@ -2738,7 +2749,8 @@ async def schedule_notifier():
                 if user.get("class_code"):
                     users_with_class_ids.append(user["tg_id"])
 
-            notif_settings = get_user_settings_bulk(
+            notif_settings = await asyncio.to_thread(
+                get_user_settings_bulk,
                 users_with_class_ids,
                 [
                     "notif_start",
@@ -2797,6 +2809,9 @@ async def schedule_notifier():
                                 continue
 
                         lang = user["lang"]
+                        lesson_display = lessons_map[lesson_num]
+                        if lang == "ru":
+                            lesson_display = LESSON_TRANSLATIONS.get(lesson_display, lesson_display)
                         if event_type == "start":
                             # Следующий урок
                             next_num = lesson_num + 1
@@ -2809,7 +2824,7 @@ async def schedule_notifier():
                                 next_text = "\n🏁 Последний урок!" if lang == "ru" else "\n🏁 Соңғы сабақ!"
                             text = t("lesson_start", lang).format(
                                 num=lesson_num,
-                                name=lessons_map[lesson_num],
+                                name=lesson_display,
                                 start=times["start"],
                                 end=times["end"],
                                 next=next_text,
@@ -2818,13 +2833,13 @@ async def schedule_notifier():
                             if aggressive_warning == "on":
                                 text = t("lesson_warning_aggressive", lang).format(
                                     num=lesson_num,
-                                    name=lessons_map[lesson_num],
+                                    name=lesson_display,
                                     minutes=warning_offset,
                                 )
                             else:
                                 text = t("lesson_warning", lang).format(
                                     num=lesson_num,
-                                    name=lessons_map[lesson_num],
+                                    name=lesson_display,
                                     minutes=warning_offset,
                                 )
                         else:  # end
@@ -2892,7 +2907,7 @@ async def live_schedule_updater():
         try:
             processed = 0
             for uid, view in list(_live_schedule_views.items()):
-                user = get_user(uid)
+                user = await asyncio.to_thread(get_user, uid)
                 if not user:
                     _live_schedule_views.pop(uid, None)
                     continue
@@ -2947,7 +2962,7 @@ async def auto_backup_task():
         await asyncio.sleep(delay)
         
         try:
-            data = get_full_backup()
+            data = await asyncio.to_thread(get_full_backup)
             
             def default_serializer(obj):
                 if hasattr(obj, 'isoformat'):

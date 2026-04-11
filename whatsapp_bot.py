@@ -216,12 +216,12 @@ def process_message(wa_id: int, text: str):
     text_ci = text.strip().lower()
 
     if text_ci in ("/logout", "выйти", "шығу"):
-        db.delete_user(wa_id)
-        if wa_id in FSM_DATA:
-            FSM_DATA.pop(wa_id, None)
+        lang = user["lang"] if user else "ru"
+        if user:
+            db.delete_user(wa_id)
+        FSM_DATA.pop(wa_id, None)
         msg_ru = "🚪 Вы вышли из аккаунта.\n\nНапишите любое сообщение, чтобы зарегистрироваться заново."
         msg_kk = "🚪 Сіз аккаунттан шықтыңыз.\n\nҚайта тіркелу үшін кез келген хабарлама жазыңыз."
-        lang = user["lang"] if user else "ru"
         send_msg(wa_id, msg_ru if lang == "ru" else msg_kk)
         return
 
@@ -270,17 +270,26 @@ def process_message(wa_id: int, text: str):
                     send_msg(wa_id, err_msg)
                     return
                 
+            # Consume invite code now that registration is complete
+            invite_code = fsm["data"].get("invite_code")
+            if invite_code:
+                consumed = db.use_invite_code(invite_code, wa_id)
+                if not consumed:
+                    err_msg = "❌ Код уже использован. Запросите новый." if lang == "ru" else "❌ Код қолданылған. Жаңасын сұраңыз."
+                    send_msg(wa_id, err_msg)
+                    FSM_DATA.pop(wa_id, None)
+                    return
             db.add_user(wa_id, name, role, lang, class_code, shift, "whatsapp")
             user = db.get_user(wa_id)
             send_msg(wa_id, t("registration_done", lang) + "\n\n" + get_main_menu_text(user["lang"], user["role"]))
             FSM_DATA.pop(wa_id, None)
             return
         # Maybe invite code?
-        code_data = db.use_invite_code(text.upper(), wa_id)
+        code_data = db.validate_invite_code(text.upper())
         if code_data:
             FSM_DATA[wa_id] = {
                 "state": "wait_lang",
-                "data": {"role": code_data["role"], "class_code": code_data["class_code"], "shift": code_data["shift"]}
+                "data": {"role": code_data["role"], "class_code": code_data["class_code"], "shift": code_data["shift"], "invite_code": text.upper()}
             }
             send_msg(wa_id, "Выберите язык / Тілді таңдаңыз:\n1. 🇷🇺 Русский\n2. 🇰🇿 Қазақша\n\n(Отправьте цифру / Цифрды жіберіңіз)")
             return
@@ -343,6 +352,10 @@ def process_message(wa_id: int, text: str):
         return
 
     if fsm and fsm.get("state") == "edit_schedule_class":
+        if user["role"] != "zavuch":
+            FSM_DATA.pop(wa_id, None)
+            send_msg(wa_id, "🚫 Нет прав." + "\n\n" + get_main_menu_text(lang, user["role"]))
+            return
         if text_ci in ("отмена", "cancel", "болдырмау"):
             FSM_DATA.pop(wa_id, None)
             send_msg(wa_id, ("Отменено." if lang == "ru" else "Тоқтатылды.") + "\n\n" + get_main_menu_text(lang, user["role"]))
