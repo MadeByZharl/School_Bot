@@ -1,7 +1,7 @@
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 
-ALMATY_TZ = pytz.timezone("Asia/Almaty")
+ALMATY_TZ = ZoneInfo("Asia/Almaty")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # СТАНДАРТ — 45-минутные уроки

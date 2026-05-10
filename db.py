@@ -12,11 +12,23 @@ from cachetools import TTLCache
 
 load_dotenv()
 
-DB_HOST = os.getenv("DB_HOST", "db.msk.minerent.net")
-DB_PORT = int(os.getenv("DB_PORT", 3306))
-DB_USER = os.getenv("DB_USER", "u21319_qwgUvpiitb")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "s21319_TgBot")
+
+def _require_env(name: str) -> str:
+    """Fail-fast: если обязательной переменной окружения нет — сразу падаем."""
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(
+            f"Environment variable {name!r} is required. "
+            f"Добавь её в .env (см. .env.example)."
+        )
+    return value
+
+
+DB_HOST = _require_env("DB_HOST")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_USER = _require_env("DB_USER")
+DB_PASSWORD = _require_env("DB_PASSWORD")
+DB_NAME = _require_env("DB_NAME")
 
 # ── Connection pool ──
 _pool = Queue(maxsize=10)

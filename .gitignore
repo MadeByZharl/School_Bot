@@ -31,3 +31,11 @@ wheels/
 .venv
 venv/
 ENV/
+
+# macOS
+.DS_Store
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/

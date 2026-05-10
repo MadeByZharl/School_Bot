@@ -11,6 +11,7 @@ wa_spam_cache = TTLCache(maxsize=2000, ttl=0.4)
 import db
 from schedule_config import get_shifts, get_now_almaty, get_weekday_almaty
 from translations import TEXTS, LESSON_TRANSLATIONS
+from utils.validators import has_bad_words
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -258,8 +259,7 @@ def process_message(wa_id: int, text: str):
                 err_msg = "❌ Имя слишком короткое. Попробуйте еще раз:" if lang == "ru" else "❌ Атыңыз тым қысқа. Қайтадан байқап көріңіз:"
                 send_msg(wa_id, err_msg)
                 return
-            BAD_WORDS_WA = ["блять", "сука", "хуй", "пизд", "ебан", "нахуй", "залуп", "ёб", "дерьм"]
-            if any(w in name.lower() for w in BAD_WORDS_WA):
+            if has_bad_words(name):
                 err_msg = "❌ Недопустимое имя. Попробуйте другое:" if lang == "ru" else "❌ Жарамсыз ат. Басқасын көріңіз:"
                 send_msg(wa_id, err_msg)
                 return

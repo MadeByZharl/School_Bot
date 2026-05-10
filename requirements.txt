@@ -1,12 +1,18 @@
-aiogram
-requests
-python-dotenv
-pytz
-whatsapp-api-client-python
-PyMySQL
+# Core bot
+aiogram>=3.4,<4.0
+python-dotenv>=1.0,<2.0
+cachetools>=5.3,<7.0
+PyMySQL>=1.1,<2.0
+requests>=2.31,<3.0
 
-fastapi
-uvicorn
-jinja2
-python-multipart
-cachetools==5.3.3
+# WhatsApp integration
+whatsapp-api-client-python>=0.0.49
+
+# Web (опционально, используется если разворачивается FastAPI-часть)
+fastapi>=0.110,<1.0
+uvicorn>=0.29,<1.0
+jinja2>=3.1,<4.0
+python-multipart>=0.0.9
+
+# Dev / tests
+pytest>=8.0
