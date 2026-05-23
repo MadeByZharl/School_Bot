@@ -1,0 +1,614 @@
+{
+  "invite_codes": [
+    {
+      "code": "2O9YG36H",
+      "role": "student",
+      "class_code": "8Ә",
+      "shift": 1,
+      "created_by": 7903470823,
+      "created_at": "2026-03-02 19:46:45",
+      "is_active": 1,
+      "reusable": 1,
+      "use_count": 2
+    },
+    {
+      "code": "9DABMO9F",
+      "role": "student",
+      "class_code": "8Ә",
+      "shift": 1,
+      "created_by": 7903470823,
+      "created_at": "2026-03-02 19:46:46",
+      "is_active": 1,
+      "reusable": 1,
+      "use_count": 0
+    },
+    {
+      "code": "C9E8I8WP",
+      "role": "teacher",
+      "class_code": "8Ә",
+      "shift": 1,
+      "created_by": 7903470823,
+      "created_at": "2026-04-08 04:06:25",
+      "is_active": 1,
+      "reusable": 0,
+      "use_count": 0
+    },
+    {
+      "code": "JGJ4HZ3U",
+      "role": "student",
+      "class_code": "8 А",
+      "shift": 1,
+      "created_by": 7903470823,
+      "created_at": "2026-03-02 19:46:44",
+      "is_active": 1,
+      "reusable": 1,
+      "use_count": 0
+    },
+    {
+      "code": "SGGBZX66",
+      "role": "student",
+      "class_code": "8 А",
+      "shift": 1,
+      "created_by": 0,
+      "created_at": "2026-02-27 12:34:17",
+      "is_active": 1,
+      "reusable": 1,
+      "use_count": 4
+    },
+    {
+      "code": "X7XV1ZX4",
+      "role": "student",
+      "class_code": "8Ә",
+      "shift": 1,
+      "created_by": 7903470823,
+      "created_at": "2026-02-27 05:27:20",
+      "is_active": 1,
+      "reusable": 1,
+      "use_count": 8
+    },
+    {
+      "code": "ZAVUCH2026",
+      "role": "zavuch",
+      "class_code": null,
+      "shift": 1,
+      "created_by": 0,
+      "created_at": "2026-02-27 10:24:35",
+      "is_active": 1,
+      "reusable": 1,
+      "use_count": 2
+    }
+  ],
+  "classes": [
+    {
+      "class_code": "8 А",
+      "class_name": "8 А",
+      "shift": 1
+    },
+    {
+      "class_code": "8Ә",
+      "class_name": "8 Ә",
+      "shift": 1
+    }
+  ],
+  "lessons": [
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 1,
+      "lesson_name": "Сынып сағаты"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 2,
+      "lesson_name": "География"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 3,
+      "lesson_name": "Биология"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 4,
+      "lesson_name": "Қазақ тілі"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 5,
+      "lesson_name": "Орыс тілі мен әдебиеті"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 6,
+      "lesson_name": "Химия"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 7,
+      "lesson_name": "Дүние жүзі тарихы"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 0,
+      "lesson_num": 8,
+      "lesson_name": "Жаһандық құзіреттілік"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 1,
+      "lesson_num": 1,
+      "lesson_name": "Қазақ әдебиеті"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 1,
+      "lesson_num": 2,
+      "lesson_name": "Алгебра"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 1,
+      "lesson_num": 3,
+      "lesson_name": "Қазақстан тарихы"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 1,
+      "lesson_num": 4,
+      "lesson_name": "Информатика 1/2"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 1,
+      "lesson_num": 5,
+      "lesson_name": "Орыс тілі мен әдебиеті"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 1,
+      "lesson_num": 6,
+      "lesson_name": "Шетел тілі 1/2"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 2,
+      "lesson_num": 1,
+      "lesson_name": "Химия"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 2,
+      "lesson_num": 2,
+      "lesson_name": "Физика"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 2,
+      "lesson_num": 3,
+      "lesson_name": "Алгебра"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 2,
+      "lesson_num": 4,
+      "lesson_name": "Қазақ тілі"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 2,
+      "lesson_num": 5,
+      "lesson_name": "Дене шынықтыру"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 2,
+      "lesson_num": 6,
+      "lesson_name": "Көркем еңбек 1/2"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 1,
+      "lesson_name": "Биология"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 2,
+      "lesson_name": "Алгебра"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 3,
+      "lesson_name": "Орыс тілі мен әдебиеті"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 4,
+      "lesson_name": "Геометрия"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 5,
+      "lesson_name": "Шетел тілі 1/2"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 6,
+      "lesson_name": "Дене шынықтыру"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 3,
+      "lesson_num": 7,
+      "lesson_name": "Қазақ әдебиеті"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 1,
+      "lesson_name": "География"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 2,
+      "lesson_name": "Қазақ әдебиеті"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 3,
+      "lesson_name": "Қазақстан тарихы"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 4,
+      "lesson_name": "Физика"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 5,
+      "lesson_name": "Геометрия"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 6,
+      "lesson_name": "Шетел тілі 1/2"
+    },
+    {
+      "class_code": "8 А",
+      "day_idx": 4,
+      "lesson_num": 7,
+      "lesson_name": "Дене шынықтыру"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 1,
+      "lesson_name": "Сынып сағаты"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 2,
+      "lesson_name": "Алгебра"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 3,
+      "lesson_name": "Қазақ тілі"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 4,
+      "lesson_name": "Химия"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 5,
+      "lesson_name": "Орыс тілі мен әдебиеті"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 6,
+      "lesson_name": "Шетіл тілі"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 7,
+      "lesson_name": "Қазақстан тарихы"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 0,
+      "lesson_num": 8,
+      "lesson_name": "Жаһандық құзыреттілік"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 1,
+      "lesson_name": "Химия"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 2,
+      "lesson_name": "Орыс тілі мен әдебиеті"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 3,
+      "lesson_name": "Информатика"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 4,
+      "lesson_name": "Қазақ әдебиеті"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 5,
+      "lesson_name": "Алгебра"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 6,
+      "lesson_name": "Дүние жүзі тарихы"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 1,
+      "lesson_num": 7,
+      "lesson_name": "География"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 1,
+      "lesson_name": "Алгебра"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 2,
+      "lesson_name": "Қазақстан тарихы"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 3,
+      "lesson_name": "Қазақ әдебиеті"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 4,
+      "lesson_name": "Физика"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 5,
+      "lesson_name": "Шетіл тілі"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 6,
+      "lesson_name": "Орыс тілі мен әдебиеті"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 2,
+      "lesson_num": 7,
+      "lesson_name": "Дене шынықтыру"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 3,
+      "lesson_num": 1,
+      "lesson_name": "Дене шынықтыру"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 3,
+      "lesson_num": 2,
+      "lesson_name": "Қазақ тілі"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 3,
+      "lesson_num": 3,
+      "lesson_name": "Шетіл тілі"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 3,
+      "lesson_num": 4,
+      "lesson_name": "Биология"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 3,
+      "lesson_num": 5,
+      "lesson_name": "Геометрия"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 3,
+      "lesson_num": 6,
+      "lesson_name": "Көркем еңбек"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 4,
+      "lesson_num": 1,
+      "lesson_name": "Биология"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 4,
+      "lesson_num": 2,
+      "lesson_name": "География"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 4,
+      "lesson_num": 3,
+      "lesson_name": "Қазақ тілі"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 4,
+      "lesson_num": 4,
+      "lesson_name": "Геометрия"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 4,
+      "lesson_num": 5,
+      "lesson_name": "Физика"
+    },
+    {
+      "class_code": "8Ә",
+      "day_idx": 4,
+      "lesson_num": 6,
+      "lesson_name": "Дене шынықтыру"
+    }
+  ],
+  "settings": [
+    {
+      "key": "aggressive_warning",
+      "value": "off"
+    },
+    {
+      "key": "bell_mode",
+      "value": "standard"
+    }
+  ],
+  "users": [
+    {
+      "user_id": 1,
+      "tg_id": 5538149822,
+      "full_name": "zhakoo",
+      "role": "student",
+      "lang": "kk",
+      "class_code": "8 А",
+      "shift": 1,
+      "sub_end_date": "2026-03-02",
+      "platform": "telegram"
+    },
+    {
+      "user_id": 2,
+      "tg_id": 7903470823,
+      "full_name": "Alikhan",
+      "role": "student",
+      "lang": "ru",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-02",
+      "platform": "telegram"
+    },
+    {
+      "user_id": 3,
+      "tg_id": 7290323218,
+      "full_name": "Артём",
+      "role": "student",
+      "lang": "kk",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-02",
+      "platform": "telegram"
+    },
+    {
+      "user_id": 4,
+      "tg_id": 5305291565,
+      "full_name": "Толғанай",
+      "role": "student",
+      "lang": "ru",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-02",
+      "platform": "telegram"
+    },
+    {
+      "user_id": 5,
+      "tg_id": 6144476222,
+      "full_name": "Яша Лава",
+      "role": "student",
+      "lang": "ru",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-05",
+      "platform": "telegram"
+    },
+    {
+      "user_id": 6,
+      "tg_id": 8576331246,
+      "full_name": "Сирко",
+      "role": "student",
+      "lang": "kk",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-05",
+      "platform": "telegram"
+    },
+    {
+      "user_id": 7,
+      "tg_id": 77088649632,
+      "full_name": "Әлихан",
+      "role": "student",
+      "lang": "kk",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-06",
+      "platform": "whatsapp"
+    },
+    {
+      "user_id": 8,
+      "tg_id": 77005189172,
+      "full_name": "Толик",
+      "role": "student",
+      "lang": "kk",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-06",
+      "platform": "whatsapp"
+    },
+    {
+      "user_id": 9,
+      "tg_id": 6375223592,
+      "full_name": "Аяжан",
+      "role": "student",
+      "lang": "kk",
+      "class_code": "8Ә",
+      "shift": 1,
+      "sub_end_date": "2026-03-18",
+      "platform": "telegram"
+    }
+  ]
+}

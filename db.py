@@ -1,5 +1,7 @@
+import config
 import pymysql
 import pymysql.cursors
+import sqlite3
 import string
 import random
 from contextlib import contextmanager
@@ -7,16 +9,17 @@ from datetime import datetime, timedelta
 import os
 import re
 from queue import Queue, Empty
-from dotenv import load_dotenv
 from cachetools import TTLCache
 
-load_dotenv()
-
+# Автоматически используем SQLite, если включен USE_SQLITE или не заданы MySQL учетные данные.
+USE_SQLITE = os.getenv("USE_SQLITE", "1").lower() in ["1", "true"]
 
 def _require_env(name: str) -> str:
     """Fail-fast: если обязательной переменной окружения нет — сразу падаем."""
     value = os.getenv(name)
     if not value:
+        if USE_SQLITE and name in ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"]:
+            return ""
         raise RuntimeError(
             f"Environment variable {name!r} is required. "
             f"Добавь её в .env (см. .env.example)."
@@ -25,22 +28,118 @@ def _require_env(name: str) -> str:
 
 
 DB_HOST = _require_env("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_PORT = int(os.getenv("DB_PORT", "3306")) if os.getenv("DB_PORT") else 3306
 DB_USER = _require_env("DB_USER")
 DB_PASSWORD = _require_env("DB_PASSWORD")
 DB_NAME = _require_env("DB_NAME")
+
+
+# ── SQLite Adapter for drop-in replacement ──
+
+def mysql_to_sqlite(sql: str) -> str:
+    # 1. Заменяем плейсхолдер %s на ?
+    sql = sql.replace("%s", "?")
+    
+    # 2. Заменяем INSERT IGNORE на INSERT OR IGNORE
+    sql = re.sub(r"INSERT\s+IGNORE", "INSERT OR IGNORE", sql, flags=re.IGNORECASE)
+    
+    # 3. Удаляем конструкции CHARACTER SET и COLLATE
+    sql = re.sub(r"CHARACTER\s+SET\s+\w+", "", sql, flags=re.IGNORECASE)
+    sql = re.sub(r"COLLATE\s+[\w_]+", "", sql, flags=re.IGNORECASE)
+    
+    # 4. Заменяем AUTO_INCREMENT на AUTOINCREMENT
+    sql = re.sub(r"user_id\s+INT\s+PRIMARY\s+KEY\s+AUTO_INCREMENT", 
+                 "user_id INTEGER PRIMARY KEY AUTOINCREMENT", sql, flags=re.IGNORECASE)
+    
+    # 5. Заменяем UNIQUE KEY ... на UNIQUE (...)
+    sql = re.sub(r"UNIQUE\s+KEY\s+\w+\s*\(([^)]+)\)", r"UNIQUE (\1)", sql, flags=re.IGNORECASE)
+    
+    # 6. Заменяем ENUM(...) на TEXT (так как SQLite не поддерживает ENUM)
+    sql = re.sub(r"ENUM\s*\([^)]+\)", "TEXT", sql, flags=re.IGNORECASE)
+    
+    return sql
+
+
+class SQLiteCursor:
+    def __init__(self, sqlite_cursor):
+        self.cursor = sqlite_cursor
+
+    def execute(self, query, params=None):
+        translated_query = mysql_to_sqlite(query)
+        if params is None:
+            self.cursor.execute(translated_query)
+        else:
+            if not isinstance(params, (tuple, list)):
+                params = (params,)
+            self.cursor.execute(translated_query, params)
+        return self
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def fetchall(self):
+        rows = self.cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
+    def close(self):
+        self.cursor.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
+class SQLiteConnection:
+    def __init__(self, db_path="school.db"):
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.isolation_level = None  # Режим autocommit
+        self.open = True
+
+    def cursor(self):
+        return SQLiteCursor(self.conn.cursor())
+
+    def ping(self, reconnect=True):
+        pass
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.conn.close()
+        self.open = False
+
 
 # ── Connection pool ──
 _pool = Queue(maxsize=10)
 
 def _create_conn():
-    return pymysql.connect(
-        host=DB_HOST, port=DB_PORT, user=DB_USER,
-        password=DB_PASSWORD, database=DB_NAME,
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=True, connect_timeout=5,
-        read_timeout=10, write_timeout=10,
-    )
+    if USE_SQLITE:
+        return SQLiteConnection("school.db")
+    try:
+        return pymysql.connect(
+            host=DB_HOST, port=DB_PORT, user=DB_USER,
+            password=DB_PASSWORD, database=DB_NAME,
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=True, connect_timeout=5,
+            read_timeout=10, write_timeout=10,
+        )
+    except Exception as e:
+        print(f"⚠️ Не удалось подключиться к удаленному MySQL ({e}). Автоматически откатываемся на локальную SQLite!")
+        return SQLiteConnection("school.db")
 
 def get_connection():
     """Get a connection from pool or create new."""
@@ -78,6 +177,7 @@ def pooled_connection():
         yield conn
     finally:
         release_connection(conn)
+
 
 
 # ── In-process caches ──
@@ -614,6 +714,32 @@ def get_lessons(class_code: str, day_idx: int):
             result = cursor.fetchall()
             _lessons_cache[cache_key] = result
             return result
+
+
+def get_weekly_lessons(class_code: str):
+    """Выгружает расписание на всю неделю за ОДИН запрос к БД (высокая оптимизация)."""
+    normalized_class_code = normalize_class_code(class_code)
+    with pooled_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT day_idx, lesson_num, lesson_name FROM lessons WHERE class_code = %s ORDER BY day_idx, lesson_num",
+                (normalized_class_code,)
+            )
+            rows = cursor.fetchall()
+            if rows:
+                return rows
+            
+            cursor.execute(
+                f"""
+                SELECT day_idx, lesson_num, MAX(lesson_name) AS lesson_name
+                FROM lessons
+                WHERE {_normalized_class_sql('class_code')} = %s
+                GROUP BY day_idx, lesson_num
+                ORDER BY day_idx, lesson_num
+                """,
+                (normalized_class_code,)
+            )
+            return cursor.fetchall()
 
 def get_all_subjects():
     with pooled_connection() as conn:

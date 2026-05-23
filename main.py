@@ -51,9 +51,7 @@ async def send_to_user(bot_instance: Bot, user: dict, text: str, parse_mode=Pars
             raise e
 
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
+import config
 
 
 def _require_env(name: str) -> str:
