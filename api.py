@@ -421,7 +421,7 @@ def get_class_subjects_list(class_code: str):
 @app.get("/api/zavuch/stats", tags=["👑 Панель Завуча"], summary="Статистика системы")
 def get_system_stats(tg_id: int):
     user = db.get_user(tg_id)
-    if not user or user["role"] != "zavuch":
+    if tg_id != config.ADMIN_ID and (not user or user["role"] != "zavuch"):
         return api_response(success=False, error_message="Доступ запрещен. Требуются права завуча.", status_code=403)
     
     stats = db.get_bot_stats()
@@ -430,7 +430,7 @@ def get_system_stats(tg_id: int):
 @app.post("/api/zavuch/invite-code", tags=["👑 Панель Завуча"], summary="Создать новый инвайт-код")
 def generate_invite(data: InviteCodeCreateRequest):
     creator = db.get_user(data.created_by)
-    if not creator or creator["role"] not in ["zavuch", "teacher"]:
+    if data.created_by != config.ADMIN_ID and (not creator or creator["role"] not in ["zavuch", "teacher"]):
         return api_response(success=False, error_message="Недостаточно прав для создания кодов приглашения.", status_code=403)
         
     code = db.create_invite_code(
@@ -467,7 +467,7 @@ def extend_user_subscription(data: SubscriptionExtendRequest):
 @app.get("/api/zavuch/backup", tags=["👑 Панель Завуча"], summary="Экспорт бэкапа базы данных в JSON")
 def export_database_backup(tg_id: int):
     user = db.get_user(tg_id)
-    if not user or user["role"] != "zavuch":
+    if tg_id != config.ADMIN_ID and (not user or user["role"] != "zavuch"):
         return api_response(success=False, error_message="Доступ запрещен.", status_code=403)
     
     backup_data = db.get_full_backup()
@@ -575,7 +575,7 @@ def broadcast_notification(data: BroadcastNotificationRequest):
     Интегрируется с Green API для WhatsApp (если настроено) и логирует рассылку.
     """
     sender = db.get_user(data.sender_id)
-    if not sender or sender["role"] not in ["zavuch", "teacher"]:
+    if data.sender_id != config.ADMIN_ID and (not sender or sender["role"] not in ["zavuch", "teacher"]):
         return api_response(success=False, error_message="Отправка оповещений запрещена вашим типом роли.", status_code=403)
     
     # 1. Получаем список учеников класса
