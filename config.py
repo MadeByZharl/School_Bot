@@ -16,7 +16,7 @@ API_HOST = "65.108.73.224"   # IP-адрес для запуска API (0.0.0.0 
 API_PORT = 48095             # Порт для запуска API
 
 # ── 3. Настройки Telegram-бота ──
-BOT_TOKEN = "8794322225:AAHPZXDTCUWXueY77Dq0wTEdvyGRROb7Uqw"
+BOT_TOKEN = "8794322225:AAHTKOzspazl1zMdu32RGxLkvXMF2RkSOak"
 BOT_USERNAME = "SchoolUshtobeBot"
 ADMIN_ID = 7903470823
 
@@ -25,13 +25,13 @@ ID_INSTANCE = "7103531121"
 API_TOKEN_INSTANCE = "5261f6ef2e8b4dd98d010a3f039ff95f0b2a08a7cadb46b2a7"
 
 # ── 5. База данных (MySQL / SQLite Fallback) ──
-USE_SQLITE = False            # True - использовать локальную БД SQLite (school.db), False - удаленный MySQL
+USE_SQLITE = False            # Используем удаленный MySQL. Авто-откат на SQLite сработает при сбое.
 
-DB_HOST = "65.108.73.224"
+DB_HOST = "d1.qwertyx.host"
 DB_PORT = 3306
-DB_USER = "u1796_MBWhHo8lSF"
-DB_PASSWORD = "ITBJKIvgQ+37jfM!jpB+LP^x"
-DB_NAME = "s1796_Schoolbot"
+DB_USER = "u21556_wFWgwZ6dwb"
+DB_PASSWORD = "kpbWPrSqj.Ac1X^C98L4@LB!"
+DB_NAME = "s21556_School"
 
 # ── 6. Git автоматизация ──
 GIT_BRANCH = "main"
