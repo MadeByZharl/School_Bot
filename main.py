@@ -592,7 +592,7 @@ async def cmd_update(message: Message):
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
     
-    lang = user["lang"]
+    lang = user["lang"] if user else "ru"
     await message.answer(t("update_start", lang), parse_mode=ParseMode.HTML)
     
     import subprocess
