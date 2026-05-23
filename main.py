@@ -586,7 +586,8 @@ async def cmd_logout(message: Message, state: FSMContext):
 @router.message(Command("update"))
 async def cmd_update(message: Message):
     user = get_user(message.from_user.id)
-    if not user or (user["role"] != "zavuch" and message.from_user.id != ADMIN_ID):
+    is_owner = message.from_user.id == ADMIN_ID
+    if not is_owner and (not user or (user["role"] != "zavuch")):
         lang = user["lang"] if user else "ru"
         await message.answer(t("no_permission", lang), parse_mode=ParseMode.HTML)
         return
