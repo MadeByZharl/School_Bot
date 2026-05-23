@@ -488,8 +488,14 @@ def admin_restore_database(data: RestoreBackupRequest):
         with db.pooled_connection() as conn:
             with conn.cursor() as cursor:
                 # 1. Очистка существующих таблиц (в правильном порядке из-за внешних ключей)
-                if not db.USE_SQLITE:
+                # Безопасно отключаем внешние ключи (подходит для MySQL и SQLite)
+                try:
                     cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+                except Exception:
+                    try:
+                        cursor.execute("PRAGMA foreign_keys = OFF;")
+                    except Exception:
+                        pass
                 
                 cursor.execute("DELETE FROM lessons")
                 cursor.execute("DELETE FROM user_settings")
@@ -543,8 +549,14 @@ def admin_restore_database(data: RestoreBackupRequest):
                         (s["key"], s["value"])
                     )
                 
-                if not db.USE_SQLITE:
+                # Включаем внешние ключи обратно
+                try:
                     cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+                except Exception:
+                    try:
+                        cursor.execute("PRAGMA foreign_keys = ON;")
+                    except Exception:
+                        pass
                 
         # Сбрасываем кэши после импорта
         db.invalidate_user_cache(None)
