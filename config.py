@@ -25,7 +25,7 @@ ID_INSTANCE = "7103531121"
 API_TOKEN_INSTANCE = "5261f6ef2e8b4dd98d010a3f039ff95f0b2a08a7cadb46b2a7"
 
 # ── 5. База данных (MySQL / SQLite Fallback) ──
-USE_SQLITE = False            # Используем удаленный MySQL. Авто-откат на SQLite сработает при сбое.
+USE_SQLITE = True             # True - использовать локальную БД SQLite (school.db) для надежной работы!
 
 DB_HOST = "d1.qwertyx.host"
 DB_PORT = 3306
